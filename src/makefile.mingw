@@ -7,23 +7,23 @@ USE_UPNP:=0
 INCLUDEPATHS= \
  -I"C:\boost-1.47.0-mgw" \
  -I"C:\db-4.8.30.NC-mgw\build_unix" \
- -I"C:\openssl-1.0.0d-mgw\include"
+ -I"C:\openssl-1.0.0e-mgw\include"
 
 LIBPATHS= \
  -L"C:\boost-1.47.0-mgw\stage\lib" \
  -L"C:\db-4.8.30.NC-mgw\build_unix" \
- -L"C:\openssl-1.0.0d-mgw"
+ -L"C:\openssl-1.0.0e-mgw"
 
 LIBS= \
- -l boost_system-mgw45-mt-s-1_47 \
- -l boost_filesystem-mgw45-mt-s-1_47 \
- -l boost_program_options-mgw45-mt-s-1_47 \
- -l boost_thread-mgw45-mt-s-1_47 \
+ -l boost_system-mgw46-mt-s-1_47 \
+ -l boost_filesystem-mgw46-mt-s-1_47 \
+ -l boost_program_options-mgw46-mt-s-1_47 \
+ -l boost_thread-mgw46-mt-s-1_47 \
  -l db_cxx \
  -l ssl \
  -l crypto
 
-DEFS=-DWIN32 -D_WINDOWS -DNOPCH -DUSE_SSL -DBOOST_THREAD_USE_LIB
+DEFS=-DWIN32 -D_WINDOWS -DNOPCH -DUSE_SSL -DBOOST_THREAD_USE_LIB -D__NO_SYSTEM_INCLUDES
 DEBUGFLAGS=-g
 CFLAGS=-mthreads -O2 -w -Wno-invalid-offsetof -Wformat $(DEBUGFLAGS) $(DEFS) $(INCLUDEPATHS)
 HEADERS = \
