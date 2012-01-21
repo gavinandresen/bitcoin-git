@@ -192,8 +192,9 @@ bool AppInit2(int argc, char* argv[])
             "  -dns             \t  "   + _("Allow DNS lookups for addnode and connect") + "\n" +
             "  -port=<port>     \t\t  " + _("Listen for connections on <port> (default: 8333 or testnet: 18333)") + "\n" +
             "  -maxconnections=<n>\t  " + _("Maintain at most <n> connections to peers (default: 125)") + "\n" +
-            "  -addnode=<ip>    \t  "   + _("Add a node to connect to") + "\n" +
+            "  -addnode=<ip>    \t  "   + _("Add a node to connect to and attempt to keep the connection open") + "\n" +
             "  -connect=<ip>    \t\t  " + _("Connect only to the specified node") + "\n" +
+            "  -noirc           \t  "   + _("Don't find peers using internet relay chat") + "\n" +
             "  -nolisten        \t  "   + _("Don't accept connections from outside") + "\n" +
             "  -nodnsseed       \t  "   + _("Don't bootstrap list of peers using DNS") + "\n" +
             "  -banscore=<n>    \t  "   + _("Threshold for disconnecting misbehaving peers (default: 100)") + "\n" +
@@ -226,6 +227,7 @@ bool AppInit2(int argc, char* argv[])
             "  -rpcport=<port>  \t\t  " + _("Listen for JSON-RPC connections on <port> (default: 8332)") + "\n" +
             "  -rpcallowip=<ip> \t\t  " + _("Allow JSON-RPC connections from specified IP address") + "\n" +
             "  -rpcconnect=<ip> \t  "   + _("Send commands to node running on <ip> (default: 127.0.0.1)") + "\n" +
+            "  -blocknotify=<cmd> "     + _("Execute command when the best block changes (%s in cmd is replaced by block hash)") + "\n" +
             "  -keypool=<n>     \t  "   + _("Set key pool size to <n> (default: 100)") + "\n" +
             "  -rescan          \t  "   + _("Rescan the block chain for missing wallet transactions") + "\n";
 
@@ -247,8 +249,8 @@ bool AppInit2(int argc, char* argv[])
         return false;
     }
 
+    fTestNet = GetBoolArg("-testnet");
     fDebug = GetBoolArg("-debug");
-    fAllowDNS = GetBoolArg("-dns");
 
 #ifndef WIN32
     fDaemon = GetBoolArg("-daemon");
@@ -267,10 +269,6 @@ bool AppInit2(int argc, char* argv[])
 #endif
     fPrintToConsole = GetBoolArg("-printtoconsole");
     fPrintToDebugger = GetBoolArg("-printtodebugger");
-
-    fTestNet = GetBoolArg("-testnet");
-    bool fTOR = (fUseProxy && addrProxy.port == htons(9050));
-    fNoListen = GetBoolArg("-nolisten") || fTOR;
     fLogTimestamps = GetBoolArg("-logtimestamps");
 
 #ifndef QT_GUI
@@ -330,17 +328,6 @@ bool AppInit2(int argc, char* argv[])
     {
         wxMessageBox(strprintf(_("Cannot obtain a lock on data directory %s.  Bitcoin is probably already running."), GetDataDir().c_str()), "Bitcoin");
         return false;
-    }
-
-    // Bind to the port early so we can tell if another instance is already running.
-    if (!fNoListen)
-    {
-        std::string strError;
-        if (!BindListenPort(strError))
-        {
-            wxMessageBox(strError, "Bitcoin");
-            return false;
-        }
     }
 
     std::ostringstream strErrors;
@@ -428,6 +415,10 @@ bool AppInit2(int argc, char* argv[])
     // Add wallet transactions that aren't already in a block to mapTransactions
     pwalletMain->ReacceptWalletTransactions();
 
+    // Note: Bitcoin-QT stores several settings in the wallet, so we want
+    // to load the wallet BEFORE parsing command-line arguments, so
+    // the command-line/bitcoin.conf settings override GUI setting.
+
     //
     // Parameters
     //
@@ -472,10 +463,47 @@ bool AppInit2(int argc, char* argv[])
     if (mapArgs.count("-proxy"))
     {
         fUseProxy = true;
-        addrProxy = CAddress(mapArgs["-proxy"]);
+        addrProxy = CService(mapArgs["-proxy"], 9050);
         if (!addrProxy.IsValid())
         {
             wxMessageBox(_("Invalid -proxy address"), "Bitcoin");
+            return false;
+        }
+    }
+
+    bool fTor = (fUseProxy && addrProxy.GetPort() == 9050);
+    if (fTor)
+    {
+        // Use SoftSetArg here so user can override any of these if they wish.
+        // Note: the GetBoolArg() calls for all of these must happen later.
+        SoftSetArg("-nolisten", true);
+        SoftSetArg("-noirc", true);
+        SoftSetArg("-nodnsseed", true);
+        SoftSetArg("-noupnp", true);
+        SoftSetArg("-upnp", false);
+        SoftSetArg("-dns", false);
+    }
+
+    fAllowDNS = GetBoolArg("-dns");
+    fNoListen = GetBoolArg("-nolisten");
+
+    if (fHaveUPnP)
+    {
+#if USE_UPNP
+    if (GetBoolArg("-noupnp"))
+        fUseUPnP = false;
+#else
+    if (GetBoolArg("-upnp"))
+        fUseUPnP = true;
+#endif
+    }
+
+    if (!fNoListen)
+    {
+        std::string strError;
+        if (!BindListenPort(strError))
+        {
+            wxMessageBox(strError, "Bitcoin");
             return false;
         }
     }
@@ -484,7 +512,7 @@ bool AppInit2(int argc, char* argv[])
     {
         BOOST_FOREACH(string strAddr, mapMultiArgs["-addnode"])
         {
-            CAddress addr(strAddr, fAllowDNS);
+            CAddress addr(CService(strAddr, GetDefaultPort(), fAllowDNS));
             addr.nTime = 0; // so it won't relay unless successfully connected
             if (addr.IsValid())
                 AddAddress(addr);
@@ -500,17 +528,6 @@ bool AppInit2(int argc, char* argv[])
         }
         if (nTransactionFee > 0.25 * COIN)
             wxMessageBox(_("Warning: -paytxfee is set very high.  This is the transaction fee you will pay if you send a transaction."), "Bitcoin", wxOK | wxICON_EXCLAMATION);
-    }
-
-    if (fHaveUPnP)
-    {
-#if USE_UPNP
-    if (GetBoolArg("-noupnp"))
-        fUseUPnP = false;
-#else
-    if (GetBoolArg("-upnp"))
-        fUseUPnP = true;
-#endif
     }
 
     //

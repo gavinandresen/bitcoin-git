@@ -112,7 +112,6 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
 
     // Status bar notification icons
     QFrame *frameBlocks = new QFrame();
-    //frameBlocks->setFrameStyle(QFrame::Panel | QFrame::Sunken);
     frameBlocks->setContentsMargins(0,0,0,0);
     frameBlocks->setMinimumWidth(56);
     frameBlocks->setMaximumWidth(56);
@@ -418,7 +417,6 @@ void BitcoinGUI::setNumBlocks(int count)
 {
     if(!clientModel)
         return;
-    int initTotal = clientModel->getNumBlocksAtStartup();
     int total = clientModel->getNumBlocksOfPeers();
     QString tooltip;
 
@@ -429,8 +427,8 @@ void BitcoinGUI::setNumBlocks(int count)
             progressBarLabel->setVisible(true);
             progressBarLabel->setText(tr("Synchronizing with network..."));
             progressBar->setVisible(true);
-            progressBar->setMaximum(total - initTotal);
-            progressBar->setValue(count - initTotal);
+            progressBar->setMaximum(total);
+            progressBar->setValue(count);
         }
         else
         {

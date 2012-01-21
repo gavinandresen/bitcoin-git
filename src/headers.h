@@ -12,7 +12,7 @@
 #ifdef _WIN32_WINNT
 #undef _WIN32_WINNT
 #endif
-#define _WIN32_WINNT 0x0500
+#define _WIN32_WINNT 0x0501
 #ifdef _WIN32_IE
 #undef _WIN32_IE
 #endif
@@ -78,8 +78,6 @@
 #include <netinet/in.h>
 #endif
 
-
-#pragma hdrstop
 
 #include "serialize.h"
 #include "uint256.h"

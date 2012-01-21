@@ -24,6 +24,7 @@
 #include <openssl/sha.h>
 #include <openssl/ripemd.h>
 
+#include "netbase.h"
 
 typedef long long  int64;
 typedef unsigned long long  uint64;
@@ -79,20 +80,7 @@ T* alignup(T* p)
 #define S_IWUSR             0200
 #endif
 #define unlink              _unlink
-typedef int socklen_t;
 #else
-#define WSAGetLastError()   errno
-#define WSAEINVAL           EINVAL
-#define WSAEALREADY         EALREADY
-#define WSAEWOULDBLOCK      EWOULDBLOCK
-#define WSAEMSGSIZE         EMSGSIZE
-#define WSAEINTR            EINTR
-#define WSAEINPROGRESS      EINPROGRESS
-#define WSAEADDRINUSE       EADDRINUSE
-#define WSAENOTSOCK         EBADF
-#define INVALID_SOCKET      (SOCKET)(~0)
-#define SOCKET_ERROR        -1
-typedef u_int SOCKET;
 #define _vsnprintf(a,b,c,d) vsnprintf(a,b,c,d)
 #define strlwr(psz)         to_lower(psz)
 #define _strlwr(psz)        to_lower(psz)
@@ -104,19 +92,6 @@ inline void Sleep(int64 n)
 }
 #endif
 
-inline int myclosesocket(SOCKET& hSocket)
-{
-    if (hSocket == INVALID_SOCKET)
-        return WSAENOTSOCK;
-#ifdef WIN32
-    int ret = closesocket(hSocket);
-#else
-    int ret = close(hSocket);
-#endif
-    hSocket = INVALID_SOCKET;
-    return ret;
-}
-#define closesocket(s)      myclosesocket(s)
 #if !defined(QT_GUI)
 inline const char* _(const char* psz)
 {
@@ -163,6 +138,7 @@ bool ParseMoney(const std::string& str, int64& nRet);
 bool ParseMoney(const char* pszIn, int64& nRet);
 std::vector<unsigned char> ParseHex(const char* psz);
 std::vector<unsigned char> ParseHex(const std::string& str);
+bool IsHex(const std::string& str);
 std::vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid = NULL);
 std::string DecodeBase64(const std::string& str);
 std::string EncodeBase64(const unsigned char* pch, size_t len);
@@ -187,9 +163,9 @@ uint64 GetRand(uint64 nMax);
 int64 GetTime();
 void SetMockTime(int64 nMockTimeIn);
 int64 GetAdjustedTime();
-void AddTimeData(unsigned int ip, int64 nTime);
 std::string FormatFullVersion();
 std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments);
+void AddTimeData(const CNetAddr& ip, int64 nTime);
 
 
 
@@ -439,7 +415,7 @@ inline int64 GetArg(const std::string& strArg, int64 nDefault)
     return nDefault;
 }
 
-inline bool GetBoolArg(const std::string& strArg)
+inline bool GetBoolArg(const std::string& strArg, bool fDefault=false)
 {
     if (mapArgs.count(strArg))
     {
@@ -447,9 +423,26 @@ inline bool GetBoolArg(const std::string& strArg)
             return true;
         return (atoi(mapArgs[strArg]) != 0);
     }
-    return false;
+    return fDefault;
 }
 
+/**
+ * Set an argument if it doesn't already have a value
+ *
+ * @param strArg Argument to set (e.g. "-foo")
+ * @param strValue Value (e.g. "1")
+ * @return true if argument gets set, false if it already had a value
+ */
+bool SoftSetArg(const std::string& strArg, const std::string& strValue);
+
+/**
+ * Set a boolean argument if it doesn't already have a value
+ *
+ * @param strArg Argument to set (e.g. "-foo")
+ * @param fValue Value (e.g. false)
+ * @return true if argument gets set, false if it already had a value
+ */
+bool SoftSetArg(const std::string& strArg, bool fValue);
 
 
 
@@ -723,8 +716,9 @@ inline bool AffinityBugWorkaround(void(*pfn)(void*))
 
 inline uint32_t ByteReverse(uint32_t value)
 {
-	value = ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
-	return (value<<16) | (value>>16);
+    value = ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
+    return (value<<16) | (value>>16);
 }
 
 #endif
+
