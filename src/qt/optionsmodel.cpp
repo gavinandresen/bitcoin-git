@@ -10,9 +10,9 @@ OptionsModel::OptionsModel(QObject *parent) :
 {
     QSettings settings;
 
-    if (!settings.contains("import_finished"))
+    if (!settings.contains("bImportFinished"))
     {
-        settings.setValue("import_finished", true);
+        settings.setValue("bImportFinished", true);
 
         // Move settings from old wallet.dat (if any):
         CWalletDB walletdb("wallet.dat");

@@ -170,9 +170,17 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Application identification (must be set before OptionsModel is initialized,
+    // as it is used to locate QSettings)
+    app.setOrganizationName("Bitcoin");
+    app.setOrganizationDomain("bitcoin.org");
+    if(GetBoolArg("-testnet")) // Separate UI settings for testnet
+        app.setApplicationName("Bitcoin-Qt-testnet");
+    else
+        app.setApplicationName("Bitcoin-Qt");
+
     // ... then GUI settings:
     OptionsModel optionsModel;
-
 
     // Load language files for system locale:
     // - First load the translator for the base language, without territory
@@ -197,10 +205,6 @@ int main(int argc, char *argv[])
     translator.load(":/translations/"+lang_territory);
     if (!translator.isEmpty())
         app.installTranslator(&translator);
-
-    app.setOrganizationName("Bitcoin");
-    app.setOrganizationDomain("bitcoin.org");
-    app.setApplicationName(QApplication::translate("main", "Bitcoin-Qt"));
 
     QSplashScreen splash(QPixmap(":/images/splash"), 0);
     splash.show();
