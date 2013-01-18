@@ -6,7 +6,7 @@ Depends on jsonrpc
 Usage:
 
 spendfrom.py --from=FROMADDRESS1[,FROMADDRESS2] --to=TOADDRESS --amount=amount \
-             --fee=fee --datadir=/path/to/.bitcoin --testnet --dry_run
+             --fee=fee --datadir=/path/to/.bitcoin --testnet --dry-run --change
 
 With no arguments, outputs a list of amounts associated with addresses.
 
@@ -17,8 +17,10 @@ will fail,  though, to prevent bitcoin-losing accidents). Spendfrom may fail if
 it thinks the transaction would never be confirmed (if the amount being sent is
 too small, or if the transaction is too many bytes for the fee).
 
-If a change output needs to be created, the change will be sent to the last
-FROMADDRESS (if you specify just one FROMADDRESS, change will go back to it).
+If a change output needs to be created and the change option is not specified,
+the change will be sent to the last FROMADDRESS (if you specify just one
+FROMADDRESS, change will go back to it). Otherwise a new change address will be
+created. The order of the outputs is always randomized.
 
 If --datadir is not specified, the default datadir is used.
 
