@@ -50,7 +50,13 @@ def sync_mempools(rpc_connections):
         if num_match == len(rpc_connections):
             break
         time.sleep(1)
-        
+
+def wait_peers(node, n_expected):
+    """
+    Wait until node has n_expected peers connected
+    """
+    while node.getconnectioncount() != n_expected:
+        time.sleep(1)
 
 bitcoind_processes = []
 

@@ -57,6 +57,8 @@ private:
     bool fSanityCheck; // Normally false, true if -checkmempool or -regtest
     unsigned int nTransactionsUpdated;
 
+    void writeEntry(CAutoFile& file, const uint256& txid, std::set<uint256>& alreadyWritten) const;
+
 public:
     mutable CCriticalSection cs;
     std::map<uint256, CTxMemPoolEntry> mapTx;
@@ -95,6 +97,13 @@ public:
     }
 
     bool lookup(uint256 hash, CTransaction& result) const;
+
+    // Save to mempool.dat:
+    bool Write() const;
+    // Read from mempool.dat, return entries; does
+    // not automatically add them to the pool,
+    // because they might no longer be valid.
+    bool Read(std::list<CTxMemPoolEntry>& entries) const;
 };
 
 /** CCoinsView that brings transactions from a memorypool into view.

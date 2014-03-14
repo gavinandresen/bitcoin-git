@@ -8,6 +8,8 @@
 
 using namespace std;
 
+static const char* MEMPOOL_FILENAME="mempool.dat";
+
 CTxMemPoolEntry::CTxMemPoolEntry()
 {
     nHeight = MEMPOOL_HEIGHT;
@@ -194,6 +196,102 @@ bool CTxMemPool::lookup(uint256 hash, CTransaction& result) const
     result = i->second.GetTx();
     return true;
 }
+
+void CTxMemPool::writeEntry(CAutoFile& file, const uint256& txid, std::set<uint256>& alreadyWritten) const
+{
+    if (alreadyWritten.count(txid)) return;
+    alreadyWritten.insert(txid);
+    const CTxMemPoolEntry& entry = mapTx.at(txid);
+    // Write txns we depend on first:
+    BOOST_FOREACH(const CTxIn txin, entry.GetTx().vin)
+    {
+        const uint256& prevout = txin.prevout.hash;
+        if (mapTx.count(prevout))
+            writeEntry(file, prevout, alreadyWritten);
+    }
+    unsigned int nHeight = entry.GetHeight();
+    file << entry.GetTx() << entry.GetFee() << entry.GetTime() << entry.GetPriority(nHeight) << nHeight;
+}
+
+//
+// Format of the mempool.dat file:
+//  32-bit versionRequiredToRead
+//  32-bit versionThatWrote
+//  32-bit-number of transactions
+//  [ serialized: transaction / fee / time / priority / height ]
+//
+bool CTxMemPool::Write() const
+{
+    boost::filesystem::path path = GetDataDir() / MEMPOOL_FILENAME;
+    FILE *file = fopen(path.string().c_str(), "wb"); // Overwrites any older mempool (which is fine)
+    CAutoFile fileout = CAutoFile(file, SER_DISK, CLIENT_VERSION);
+    if (!fileout)
+        return error("CTxMemPool::Write() : open failed");
+
+    fileout << CLIENT_VERSION; // version required to read
+    fileout << CLIENT_VERSION; // version that wrote the file
+
+    std::set<uint256> alreadyWritten; // Used to write parents before dependents
+    try {
+        LOCK(cs);
+        fileout << mapTx.size();
+        for (map<uint256, CTxMemPoolEntry>::const_iterator it = mapTx.begin();
+             it != mapTx.end(); it++)
+        {
+            writeEntry(fileout, it->first, alreadyWritten);
+        }
+    }
+    catch (std::exception &e) {
+        // We don't care much about errors; saving
+        // and restoring the memory pool is mostly an
+        // optimization for cases where a mining node shuts down
+        // briefly (maybe to change an option), and it is better
+        // to restart with a full memory pool of transactions to mine.
+        return error("CTxMemPool::Write() : unable to write (non-fatal)");
+    }
+
+    return true;
+}
+
+bool CTxMemPool::Read(std::list<CTxMemPoolEntry>& vecEntries) const
+{
+    boost::filesystem::path path = GetDataDir() / MEMPOOL_FILENAME;
+    FILE *file = fopen(path.string().c_str(), "rb");
+    if (!file) return true; // No mempool.dat: OK
+    CAutoFile filein = CAutoFile(file, SER_DISK, CLIENT_VERSION);
+    if (!filein)
+        return error("CTxMemPool::Read() : open failed");
+
+    try {
+        int nVersionRequired, nVersionThatWrote;
+        filein >> nVersionRequired >> nVersionThatWrote;
+
+        if (nVersionRequired > CLIENT_VERSION)
+            return error("CTxMemPool::Read() : up-version (%d) mempool.dat", nVersionRequired);
+
+        size_t nTx;
+        filein >> nTx;
+
+        for (size_t i = 0; i < nTx; i++)
+        {
+            CTransaction tx;
+            int64_t nFee;
+            int64_t nTime;
+            double dPriority;
+            unsigned int nHeight;
+            filein >> tx >> nFee >> nTime >> dPriority >> nHeight;
+            CTxMemPoolEntry e(tx, 0, nTime, dPriority, nHeight);
+            vecEntries.push_back(e);
+        }
+    }
+    catch (std::exception &e) {
+        // Not a big deal if mempool.dat gets corrupted:
+        return error("CTxMemPool::Read() : unable to read (non-fatal)");
+    }
+
+    return true;
+}
+
 
 CCoinsViewMemPool::CCoinsViewMemPool(CCoinsView &baseIn, CTxMemPool &mempoolIn) : CCoinsViewBacked(baseIn), mempool(mempoolIn) { }
 
