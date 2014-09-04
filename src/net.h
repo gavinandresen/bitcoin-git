@@ -70,6 +70,7 @@ bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhite
 void StartNode(boost::thread_group& threadGroup);
 bool StopNode();
 void SocketSendData(CNode *pnode);
+void NetGetInternalStats(std::map<std::string, size_t>& mapResults);
 
 typedef int NodeId;
 

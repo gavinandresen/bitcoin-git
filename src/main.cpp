@@ -153,6 +153,22 @@ struct CMainSignals {
 
 } // anon namespace
 
+void MainGetInternalStats(std::map<std::string, size_t>& mapResults)
+{
+    {
+        LOCK(cs_main);
+        mapResults["mapOrphanBlocks.size"] = mapOrphanBlocks.size();
+        mapResults["mapOrphanBlocksByPrev.size"] = mapOrphanBlocksByPrev.size();
+        mapResults["mapOrphanTransactions.size"] = mapOrphanTransactions.size();
+        mapResults["mapOrphanTransactionsByPrev.size"] = mapOrphanTransactionsByPrev.size();
+        mapResults["pcoinsTip.GetCacheSize"] = pcoinsTip->GetCacheSize();
+    }
+    {
+        LOCK(cs_mapAlerts);
+        mapResults["mapAlerts.size"] = mapAlerts.size();
+    }
+}
+
 void RegisterWallet(CWalletInterface* pwalletIn) {
     g_signals.SyncTransaction.connect(boost::bind(&CWalletInterface::SyncTransaction, pwalletIn, _1, _2));
     g_signals.EraseTransaction.connect(boost::bind(&CWalletInterface::EraseFromWallet, pwalletIn, _1));

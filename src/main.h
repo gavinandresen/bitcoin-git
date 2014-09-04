@@ -114,6 +114,9 @@ struct CNodeStateStats;
 
 struct CBlockTemplate;
 
+/** Return sizes of internal data structures **/
+void MainGetInternalStats(std::map<std::string, size_t>& mapResults);
+
 /** Register a wallet to receive updates from core */
 void RegisterWallet(CWalletInterface* pwalletIn);
 /** Unregister a wallet from core */

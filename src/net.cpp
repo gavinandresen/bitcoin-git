@@ -100,6 +100,21 @@ CCriticalSection cs_nLastNodeId;
 
 static CSemaphore *semOutbound = NULL;
 
+void NetGetInternalStats(std::map<std::string, size_t>& mapResults)
+{
+    {
+        LOCK(cs_vNodes);
+        mapResults["vNodes.size"] = vNodes.size();
+    }
+    {
+        LOCK(cs_mapRelay);
+        mapResults["mapRelay.size"] = mapRelay.size();
+        mapResults["vRelayExpiration.size"] = vRelayExpiration.size();
+        mapResults["mapAlreadyAskedFor.size"] = mapAlreadyAskedFor.size();
+    }
+}
+
+
 // Signals for message handling
 static CNodeSignals g_signals;
 CNodeSignals& GetNodeSignals() { return g_signals; }

@@ -149,6 +149,32 @@ public:
 };
 #endif
 
+Value getinternalstats(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "getinternalstats\n"
+            "Returns an object containing information about resource usage\n"
+            "of internal data structures.\n"
+            "This should be used for debugging purposes only; internal\n"
+            "data structures will change from release to release without\n"
+            "warning. Result is an object with string keys that are\n"
+            "internal variable names and values that are numeric sizes.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getinternalstats", "")
+            + HelpExampleRpc("getinternalstats", "")
+        );
+
+    map<string, size_t> mapResults;
+    NetGetInternalStats(mapResults);
+    MainGetInternalStats(mapResults);
+
+    Object obj;
+    BOOST_FOREACH(const PAIRTYPE(string, size_t)& item, mapResults)
+        obj.push_back(Pair(item.first, (int64_t)item.second));
+    return obj;
+}
+
 Value validateaddress(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() != 1)
