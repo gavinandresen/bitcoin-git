@@ -110,7 +110,9 @@ Value getgenerate(const Array& params, bool fHelp)
 
 Value setgenerate(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() < 1 || params.size() > 2)
+    size_t nMaxArgs = Params().MineBlocksOnDemand() ? 3 : 2;
+
+    if (fHelp || params.size() < 1 || params.size() > nMaxArgs)
         throw runtime_error(
             "setgenerate generate ( genproclimit )\n"
             "\nSet 'generate' true or false to turn generation on or off.\n"
@@ -120,6 +122,7 @@ Value setgenerate(const Array& params, bool fHelp)
             "1. generate         (boolean, required) Set to true to turn on generation, off to turn off.\n"
             "2. genproclimit     (numeric, optional) Set the processor limit for when generation is on. Can be -1 for unlimited.\n"
             "                    Note: in -regtest mode, genproclimit controls how many blocks are generated immediately.\n"
+            "3. blocktimestamp   (numeric, -regtest only) Create blocks with given timestamp.\n"
             "\nExamples:\n"
             "\nSet the generation on with a limit of one processor\n"
             + HelpExampleCli("setgenerate", "true 1") +
@@ -153,6 +156,8 @@ Value setgenerate(const Array& params, bool fHelp)
         int nHeightEnd = 0;
         int nHeight = 0;
         int nGenerate = (nGenProcLimit > 0 ? nGenProcLimit : 1);
+        int nFirstBlockTime = (params.size() > 2 ? params[2].get_int() : 0);
+
         {   // Don't keep cs_main locked
             LOCK(cs_main);
             nHeightStart = chainActive.Height();
@@ -162,10 +167,15 @@ Value setgenerate(const Array& params, bool fHelp)
         int nHeightLast = -1;
         while (nHeight < nHeightEnd)
         {
+            // if given block time, simulate 10-minute-apart blocks
+            uint32_t nBlockTime = 0;
+            if (nFirstBlockTime > 0)
+                nBlockTime = nFirstBlockTime + Params().TargetSpacing()*(nHeight-nHeightStart);
+
             if (nHeightLast != nHeight)
             {
                 nHeightLast = nHeight;
-                GenerateBitcoins(fGenerate, pwalletMain, 1);
+                GenerateBitcoins(fGenerate, pwalletMain, 1, nBlockTime);
             }
             MilliSleep(1);
             {   // Don't keep cs_main locked
@@ -173,6 +183,13 @@ Value setgenerate(const Array& params, bool fHelp)
                 nHeight = chainActive.Height();
             }
         }
+        Array blockHashes;
+        {
+            LOCK(cs_main);
+            for (int i = nHeightStart+1; i <= nHeightEnd; i++)
+                blockHashes.push_back(chainActive[i]->GetBlockHash().GetHex());
+        }
+        return blockHashes;
     }
     else // Not -regtest: start generate thread, return immediately
     {
