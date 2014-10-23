@@ -43,6 +43,16 @@ def sync_blocks(rpc_connections):
             break
         time.sleep(1)
 
+def relay_blocks(rpc_connections, from_id, hashes):
+    """
+    Relay old blocks generated from node from_id using getblock/submitblock.
+    """
+    for hash in hashes:
+        block_data = rpc_connections[from_id].getblock(hash, False)
+        for i in range(0, len(rpc_connections)):
+            if i != from_id:
+                rpc_connections[i].submitblock(block_data)
+
 def sync_mempools(rpc_connections):
     """
     Wait until everybody has the same transactions in their memory
@@ -103,11 +113,17 @@ def initialize_chain(test_dir):
 
         # Create a 200-block-long chain; each of the 4 nodes
         # gets 25 mature blocks and 25 immature.
+        # Block timestamps set to start start a 1 Jan 2014
+        blocktime = 1388534400  # 1 Jan 2014
         for i in range(4):
-            rpcs[i].setgenerate(True, 25)
+            block_hashes = rpcs[i].setgenerate(True, 25, blocktime)
+            relay_blocks(rpcs, i, block_hashes)
+            blocktime += 10*60*25
             sync_blocks(rpcs)
         for i in range(4):
-            rpcs[i].setgenerate(True, 25)
+            block_hashes = rpcs[i].setgenerate(True, 25, blocktime)
+            relay_blocks(rpcs, i, block_hashes)
+            blocktime += 10*60*25
             sync_blocks(rpcs)
 
         # Shut them down, and remove debug.logs:
