@@ -48,7 +48,7 @@ class CValidationState;
 struct CNodeStateStats;
 
 /** Default for -blockmaxsize and -blockminsize, which control the range of sizes the mining code will create **/
-static const unsigned int DEFAULT_BLOCK_MAX_SIZE = 750000;
+static const unsigned int DEFAULT_BLOCK_MAX_SIZE = 20*1000*1000; //MEGABLOCKS
 static const unsigned int DEFAULT_BLOCK_MIN_SIZE = 0;
 /** Default for -blockprioritysize, maximum space for zero/low-fee transactions **/
 static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 50000;
@@ -61,7 +61,8 @@ static const unsigned int MAX_STANDARD_TX_SIGOPS = MAX_BLOCK_SIGOPS/5;
 /** Default for -maxorphantx, maximum number of orphan transactions kept in memory */
 static const unsigned int DEFAULT_MAX_ORPHAN_TRANSACTIONS = 100;
 /** The maximum size of a blk?????.dat file (since 0.8) */
-static const unsigned int MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
+static const unsigned int MAX_BLOCKFILE_SIZE = 0x78000000; //MEGABLOCKS : about 2GB
+
 /** The pre-allocation chunk size for blk?????.dat files (since 0.8) */
 static const unsigned int BLOCKFILE_CHUNK_SIZE = 0x1000000; // 16 MiB
 /** The pre-allocation chunk size for rev?????.dat files (since 0.8) */
@@ -128,6 +129,7 @@ extern CBlockIndex *pindexBestHeader;
 /** Minimum disk space required - used in CheckDiskSpace() */
 static const uint64_t nMinDiskSpace = 52428800;
 
+<<<<<<< HEAD
 /** Pruning-related variables and constants */
 /** True if any block files have ever been pruned. */
 extern bool fHavePruned;
@@ -147,6 +149,20 @@ static const signed int MIN_BLOCKS_TO_KEEP = 288;
 // one 128MB block file + added 15% undo data = 147MB greater for a total of 545MB
 // Setting the target to > than 550MB will make it likely we can respect the target.
 static const signed int MIN_DISK_SPACE_FOR_BLOCK_FILES = 550 * 1024 * 1024;
+=======
+//MEGABLOCKS: coinbase transactions from a chain we're emulating
+// keys are blockheight-in-regtest-chain
+extern std::multimap<int, CTransaction> megablockCoinbases;
+
+/** Register a wallet to receive updates from core */
+void RegisterValidationInterface(CValidationInterface* pwalletIn);
+/** Unregister a wallet from core */
+void UnregisterValidationInterface(CValidationInterface* pwalletIn);
+/** Unregister all wallets from core */
+void UnregisterAllValidationInterfaces();
+/** Push an updated transaction to all registered wallets */
+void SyncWithWallets(const CTransaction& tx, const CBlock* pblock = NULL);
+>>>>>>> Extra Large block experiments
 
 /** Register with a network node to receive its signals */
 void RegisterNodeSignals(CNodeSignals& nodeSignals);

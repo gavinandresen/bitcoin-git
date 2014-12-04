@@ -64,7 +64,7 @@ if BUILD_BITCOIND
 endif
 
 if BUILD_BITCOIN_UTILS
-  bin_PROGRAMS += bitcoin-cli bitcoin-tx
+  bin_PROGRAMS += bitcoin-cli bitcoin-tx gen_megablocks
 endif
 
 .PHONY: FORCE
@@ -357,6 +357,28 @@ bitcoin_tx_LDADD = \
 bitcoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #
 
+# gen_megablocks binary #
+gen_megablocks_LDADD = \
+  $(LIBBITCOIN_SERVER) \
+  $(LIBBITCOIN_WALLET) \
+  $(LIBBITCOIN_COMMON) \
+  $(LIBBITCOIN_UNIVALUE) \
+  $(LIBBITCOIN_UTIL) \
+  $(LIBBITCOIN_CRYPTO) \
+  $(LIBSECP256K1) \
+  $(BOOST_LIBS) \
+  $(BDB_LIBS) \
+  $(SSL_LIBS) \
+  $(CRYPTO_LIBS) \
+  $(LIBLEVELDB) \
+  $(LIBMEMENV)
+
+gen_megablocks_SOURCES = gen_megablocks.cpp
+gen_megablocks_CPPFLAGS = $(BITCOIN_INCLUDES)
+gen_megablocks_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+#
+
+#
 # bitcoinconsensus library #
 if BUILD_BITCOIN_LIBS
 include_HEADERS = script/bitcoinconsensus.h

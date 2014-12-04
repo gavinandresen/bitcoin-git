@@ -223,6 +223,7 @@ public:
         fRequireStandard = false;
         fMineBlocksOnDemand = true;
         fTestnetToBeDeprecatedFieldRPC = false;
+        fSkipProofOfWorkCheck = true; //MEGABLOCKS (creates chains with all blocks == min POW)
 
         checkpointData = (Checkpoints::CCheckpointData){
             boost::assign::map_list_of

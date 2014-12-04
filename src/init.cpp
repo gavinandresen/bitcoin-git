@@ -1026,6 +1026,27 @@ bool AppInit2(boost::thread_group& threadGroup)
 
     // ********************************************************* Step 7: load block chain
 
+    //MEGABLOCKS: read coinbasetx.dat, if it exists (txids that this
+    //branch considers always unspent and able to spend)
+    {
+        boost::filesystem::path coinbasesFilename = GetDataDir() / "coinbasetx.dat";
+        CAutoFile f(fopen(coinbasesFilename.c_str(), "r"), SER_DISK, CLIENT_VERSION);
+        int nCoinbase = 0;
+        if (!f.IsNull())
+        {
+            while (1)
+            {
+                int h; CTransaction tx;
+                f >> h >> tx;
+                if (h < 0) break;
+                megablockCoinbases.insert(std::make_pair(h, tx));
+                ++nCoinbase;
+            }
+        }
+        LogPrintf("MEGABLOCKS: Read %d txids from coinbasetx.dat\n", nCoinbase);
+    }
+    //MEGABLOCKS END
+
     fReindex = GetBoolArg("-reindex", false);
 
     // Upgrading to 0.8; hard-link the old blknnnn.dat files into /blocks/
