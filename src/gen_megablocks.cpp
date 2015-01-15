@@ -58,8 +58,24 @@ int main(int argc, char* argv[])
     bool fQuiet = GetBoolArg("-q", false);
 
     bool fParseErr = false;
+
+    // Having two different params to control
+    // how big blocks are is a hack, but convenient
+    // for creating chains with varying blocksize
+    // (use -n and the size variation will be like
+    // the main chain) or consistent block sizes
+    // (use -size).
     int nToCombine = static_cast<int>(GetArg("-n", 0));
-    if (nToCombine <= 0) fParseErr = true;
+    unsigned int nSizeTarget = static_cast<unsigned int>(GetArg("-size", 0));
+    if (nToCombine <= 0 && nSizeTarget <= 0) fParseErr = true;
+    else if (nToCombine <= 0 && nSizeTarget > 0){
+        // ... keep combining until block is bigger than nSizeTarget:
+        nToCombine = std::numeric_limits<int>::max();
+    }
+    else if (nToCombine > 0 && nSizeTarget <= 0) {
+        // ... combine nToCombine, no matter how big blocks get:
+        nSizeTarget = std::numeric_limits<unsigned int>::max();
+    }
     std::string writeDir = GetArg("-d", "");
     if (writeDir.empty()) fParseErr = true;
 
@@ -79,7 +95,7 @@ int main(int argc, char* argv[])
     }
 
     if (fParseErr) {
-        fprintf(stderr, "Usage: %s -n=11 -d=/path/to/megachain -skiptx=HEX_TX_ID -to=n\n", argv[0]);
+        fprintf(stderr, "Usage: %s -n=11 -size=1000000 -d=/path/to/megachain -skiptx=HEX_TX_ID -to=n\n", argv[0]);
         fprintf(stderr, "Writes blk*.dat to -d path; run a megablocks-compiled\n");
         fprintf(stderr, "bitcoind with -loadblock=/path/to/blk*.dat to load\n");
         fprintf(stderr, "Also writes a coinbasetx.dat file; copy or link that\n");
@@ -89,6 +105,8 @@ int main(int argc, char* argv[])
         fprintf(stderr, "If one or more -skiptx txids are given, skip those\n");
         fprintf(stderr, "transactions (and their descendants; useful for\n");
         fprintf(stderr, "re-org testing)\n");
+        fprintf(stderr, "Either bundles up -n blocks at a time, or creates blocks that\n");
+        fprintf(stderr," are at least -size bytes big.\n");
         fprintf(stderr, "Dumps all blocks, unless -to=n option given (dumps through block height n)\n");
         return 1;
     }
@@ -120,7 +138,8 @@ int main(int argc, char* argv[])
     std::string coinbaseFile = writeDir+"/"+"coinbasetx.dat";
     CAutoFile coinbaseStream(fopen(coinbaseFile.c_str(), "wb"), SER_DISK, CLIENT_VERSION);
     int writeBlockHeight = 1;
-    for (int h = 1; h <= nHeight; h += nToCombine){
+    int h = 1;
+    while (h <= nHeight) {
         CBlock megablock;
 
         // Create a coinbase transaction
@@ -135,15 +154,16 @@ int main(int argc, char* argv[])
         megablock.vtx.push_back(tx);
 
         // Now add transactions from rest of blocks to megablock:
-        for (int j = h; j < h+nToCombine && j <= nHeight; j++) {
+        unsigned int nMaxCombine = h+nToCombine;
+        while (h < nMaxCombine && ::GetSerializeSize(megablock, SER_DISK, CLIENT_VERSION) < nSizeTarget) {
             CBlock b;
-            if (!ReadBlockFromDisk(b, chainActive[j])) {
-                fprintf(stderr, "Couldn't read block %d, skipping\n", j);
+            if (!ReadBlockFromDisk(b, chainActive[h])) {
+                fprintf(stderr, "Couldn't read block %d, skipping\n", h);
                 return 1;
             }
             // main-chain blocks 91842 and 91880 are weird; skip their
             // coinbase transactions, they're duplicates and not spendable anyway:
-            if (j != 91842 && j != 91880) {
+            if (h != 91842 && h != 91880) {
                 // coinbaseStream is list of:
                 //  height in new blockchain where transaction should become live
                 //  full coinbase transaction
@@ -168,7 +188,8 @@ int main(int argc, char* argv[])
                     ++nSkipped;
             }
 
-            if (!fQuiet && j%10000 == 0) { printf("%d ", j); fflush(stdout); }
+            if (!fQuiet && h%10000 == 0) { printf("%d ", h); fflush(stdout); }
+            ++h;
         }
         bool fBadMerkle = false;
         megablock.hashMerkleRoot = megablock.BuildMerkleTree(&fBadMerkle);
@@ -198,7 +219,7 @@ int main(int argc, char* argv[])
         {
             printf("\nSkipped %d transactions", nSkipped);
         }
-        printf("\nFinished.\n");
+        printf("\nFinished, new chain is %d blocks long.\n", writeBlockHeight-1);
     }
 
     return 0;
