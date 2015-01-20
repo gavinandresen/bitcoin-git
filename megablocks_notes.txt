@@ -1,0 +1,162 @@
+11 Dec 2014
+
+Full block chain (up to block 333734) tests:
+
+All times are with my megablocks branch, running in -regtest mode-- so no
+checkpoints, every transaction is completely re-validated. Default settings
+for everything (-dbcache, etc)
+
+Machine is:
+ "Late 2012" iMac running OSX 10.9
+ 3.4GHZ Intel Core i7
+ 16GB memory
+ 3TB hybrid SSD/spinning disk  (120GB SSD backed by 3TB disk)
+
+VALIDATING BLOCKS
+-----------------
+These times are from -debug=bench, reading blocks using -loadblock.
+
+Maximum block size: 26.5 MB
+     (average size: 12.5 MB)
+Time to validate max block:   ~25 seconds
+
+Max block size: 194 MB
+      (average: 137 MB)
+Time to validate max block:  ~250 seconds
+
+Actual times if fully sync'ed would be much quicker, assuming most of
+the transactions had already been seen so the signature cache
+was "warm."
+
+
+Baseline: 100-block re-org, ~900K blocks:
+----------------------------------------
+/usr/bin/time -l memory usage:
+
+338,313,216  maximum resident set size  (node that performs the re-org)
+108,662,784  maximum resident set size  (other node)
+
+Total time for re-org: 46 seconds
+
+
+Re-org test results, short re-org, ~20MB blocks
+-----------------------------------------------
+/usr/bin/time -l memory usage:
+
+674,136,064  maximum resident set size  (node that performs the re-org)
+297,807,872  maximum resident set size  (other node)
+
+Total time for re-org: 17 seconds
+
+Re-org test results, 100-block-long re-org, ~20MB blocks
+---------------------------------------------------
+
+1,436,880,896  maximum resident set size (node that performs re-org)
+  377,962,496  maximum resident set size (other node)
+
+Total time for re-org: 4,516 seconds
+
+
+Initial Block Download, across Internet, ~20MB blocks
+-----------------------------------------------------
+
+Serving 20MB-block-chain up to main-chain block 300,000
+from my Mac, to a Chunkhost-hosted single-CPU server
+(8GB ran, 60GB disk).*
+
+73,681 seconds (~ 20.5 hours) to sync.
+
+Time to sync main chain to block 280,000:
+
+344,259 (~ 4 days).
+
+
+* I connect via an OpenVPN proxy, so I can easily switch IPs if
+I'm the target of a DDoS attack, but the proxy should just
+increase latency and not significantly affect sync time.
+
+* also running with -txindex=1, which increases sync time
+significantly
+
+
+TODO:
+
+Test IBD across the Internet.
+NOTE: 200MB block case will require changing network message MAX_SIZE constant
+(currently 32MB; constant is an unsigned int, which could be as big a 4GB).
+
+CAREFULLY: import a few of my mainchain private keys, make sure wallet behaves and
+shows correct balance. Try a spend on the fake chain.
+
+DONE Test re-orgs
+  + New mode for create_megachain, to create alternative tip(s)
+    "Build a new tip M blocks long, with data from the last N blocks, (forking at block N-1)"
+
+DONE Measure maximum memory usage.
+
+
+NOTES ON RECREATING MY RESULTS
+==============================
+
+Warning: this is all throwaway code I don't expect to use again, written just
+to get test results. Don't expect "pretty" or "easy-to-use."
+
+You need a fully up-to-date-blockchain. Once you're synced, exit Bitcoin-Qt or bitcoind.
+
+You'll need to checkout and compile my 'megablocks' branch.
+Compiling will create src/gen_megablocks.
+
+RE-ORG TESTS
+------------
+
+I created three 20-megabyte blockchains for the download and re-org tests using
+the src/create_megachain.sh script.
+
+I hacked it to add -skiptx=<TXID> to the gen_megablocks call to create slightly
+different chains.
+
+e.g. I ran:
+Chain1: gen_megablocks -n=50 ... -to=300000 -skiptx=cf263594859fcf1ebb80d8ca659b283c1503ff7359d14129bdb541a2003b74a0
+Chain2: gen_megablocks -n=50 ... -to=299940 -skiptx=3650b5804586e821a5301b9bc91759ac7548636482e8615e1c8494cc3a060601
+Chain3: gen_megablocks -n=50 ... -to=300000 -skiptx=c6934ee9f255bb3a2b2a88faab8e192819aac0e0a409f5aa160e536b9e815301
+
+Then I ran bitcoind's for Chain1 and Chain2. Then connected them using the addnode RPC call
+(bitcoin-cli -datadir=.../Chain1 addnode 127.0.0.1:11954 onetry) to get Chain2 to do a short-reorg
+onto Chain1's chain.
+
+Specifically, I ran:
+   /usr/bin/time -l bitcoind -debug=bench -datadir=...path_to_ChainN
+... waited until the re-org was finished (tail -f ...path_to_ChainN/regtest/debug.log to monitor)
+... and then used the RPC stop command to do a clean shutdown and get memory usage from /usr/bin/time.
+
+Running and then connecting Chain2/Chain3 gets the 100-block re-org.
+
+Note: gen_megablocks with the same arguments is deterministic-- you'll get exactly the same block chain.
+So running it twice with different -skiptx gets you blockchains that are identical up to the first
+-skiptx
+
+INITIAL BLOCK DOWNLOAD TEST
+---------------------------
+
+Compiled the megablocks branch on both machines.
+
+I re-used one of the chains from the re-org tests.
+
+There is one hack needed to get the sync-across-the-network to work: you must first manually copy the
+...chain/regtest/coinbasetx.dat   file created by gen_megablocks to the machine that will
+be receiving the megachain (otherwise it doesn't have the main-network coinbases, and you'll see
+an error trying to validate).
+
+So I created a -datadir on the chunkhost machine, copied up the bitcoin.conf and regtest/coinbasetx.dat,
+and ran a bitcoind compiled there from the megablocks branch.
+
+Run a bitcoind on the machine with the megablock chain, then addnode one to the other and they will
+sync across the network.
+
+200-MB CHAIN
+------------
+
+I did a lot less testing with the 200-MB-block chain, simply because it was feeling like a waste of time
+and disk space. All results point to the current implementation's CPU / memory / bandwidth scaling up
+linearly with block size / transaction volume.
+
