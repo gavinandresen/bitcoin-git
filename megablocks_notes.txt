@@ -61,7 +61,7 @@ Initial Block Download, across Internet, ~20MB blocks
 -----------------------------------------------------
 
 Serving 20MB-block-chain up to main-chain block 300,000
-from my Mac, to a Chunkhost-hosted single-CPU server
+from my Mac, to a Chunkhost-hosted dual-CPU VPS
 (8GB ran, 60GB disk).*
 
 73,681 seconds (~ 20.5 hours) to sync.
@@ -77,22 +77,6 @@ increase latency and not significantly affect sync time.
 
 * also running with -txindex=1, which increases sync time
 significantly
-
-
-TODO:
-
-Test IBD across the Internet.
-NOTE: 200MB block case will require changing network message MAX_SIZE constant
-(currently 32MB; constant is an unsigned int, which could be as big a 4GB).
-
-CAREFULLY: import a few of my mainchain private keys, make sure wallet behaves and
-shows correct balance. Try a spend on the fake chain.
-
-DONE Test re-orgs
-  + New mode for create_megachain, to create alternative tip(s)
-    "Build a new tip M blocks long, with data from the last N blocks, (forking at block N-1)"
-
-DONE Measure maximum memory usage.
 
 
 NOTES ON RECREATING MY RESULTS
