@@ -114,29 +114,32 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
     pblocktemplate->vTxFees.push_back(-1); // updated at end
     pblocktemplate->vTxSigOps.push_back(-1); // updated at end
 
-    // Largest block you're willing to create:
-    unsigned int nBlockMaxSize = GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
-    // Limit to betweeen 1K and MAX_BLOCK_SIZE-1K for sanity:
-    nBlockMaxSize = std::max((unsigned int)1000, std::min((unsigned int)(MAX_BLOCK_SIZE-1000), nBlockMaxSize));
-
-    // How much of the block should be dedicated to high-priority transactions,
-    // included regardless of the fees they pay
-    unsigned int nBlockPrioritySize = GetArg("-blockprioritysize", DEFAULT_BLOCK_PRIORITY_SIZE);
-    nBlockPrioritySize = std::min(nBlockMaxSize, nBlockPrioritySize);
-
-    // Minimum block size you want to create; block will be filled with free transactions
-    // until there are no more or the block reaches this size:
-    unsigned int nBlockMinSize = GetArg("-blockminsize", DEFAULT_BLOCK_MIN_SIZE);
-    nBlockMinSize = std::min(nBlockMaxSize, nBlockMinSize);
-
-    // Collect memory pool transactions into the block
-    CAmount nFees = 0;
-
     {
         LOCK2(cs_main, mempool.cs);
         CBlockIndex* pindexPrev = chainActive.Tip();
         const int nHeight = pindexPrev->nHeight + 1;
         CCoinsViewCache view(pcoinsTip);
+
+        UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
+        uint64_t nBlockTime = pblock->GetBlockTime();
+
+        // Largest block you're willing to create:
+        unsigned int nBlockMaxSize = GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
+        // Limit to betweeen 1K and max-size-minus-1K for sanity:
+        nBlockMaxSize = std::max((unsigned int)1000, std::min((unsigned int)(MaxBlockSize(nBlockTime)), nBlockMaxSize));
+
+        // How much of the block should be dedicated to high-priority transactions,
+        // included regardless of the fees they pay
+        unsigned int nBlockPrioritySize = GetArg("-blockprioritysize", DEFAULT_BLOCK_PRIORITY_SIZE);
+        nBlockPrioritySize = std::min(nBlockMaxSize, nBlockPrioritySize);
+
+        // Minimum block size you want to create; block will be filled with free transactions
+        // until there are no more or the block reaches this size:
+        unsigned int nBlockMinSize = GetArg("-blockminsize", DEFAULT_BLOCK_MIN_SIZE);
+        nBlockMinSize = std::min(nBlockMaxSize, nBlockMinSize);
+
+        // Collect memory pool transactions into the block
+        CAmount nFees = 0;
 
         // Priority order to process transactions
         list<COrphan> vOrphan; // list memory doesn't move
@@ -243,7 +246,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
 
             // Legacy limits on sigOps:
             unsigned int nTxSigOps = GetLegacySigOpCount(tx);
-            if (nBlockSigOps + nTxSigOps >= MAX_BLOCK_SIGOPS)
+            if (nBlockSigOps + nTxSigOps >= MaxBlockSigops(nBlockTime))
                 continue;
 
             // Skip free transactions if we're past the minimum block size:
@@ -270,7 +273,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
             CAmount nTxFees = view.GetValueIn(tx)-tx.GetValueOut();
 
             nTxSigOps += GetP2SHSigOpCount(tx, view);
-            if (nBlockSigOps + nTxSigOps >= MAX_BLOCK_SIGOPS)
+            if (nBlockSigOps + nTxSigOps >= MaxBlockSigops(nBlockTime))
                 continue;
 
             // Note that flags: we don't want to set mempool/IsStandard()
@@ -327,7 +330,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
 
         // Fill in header
         pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
-        UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
         pblock->nBits          = GetNextWorkRequired(pindexPrev, pblock, Params().GetConsensus());
         pblock->nNonce         = 0;
         pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
