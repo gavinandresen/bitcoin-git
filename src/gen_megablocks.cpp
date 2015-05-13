@@ -5,8 +5,10 @@
 #include "chain.h"
 #include "chainparams.h"
 #include "coins.h"
+#include "main.h"
 #include "txdb.h"
 #include "util.h"
+#include "utilstrencodings.h"
 
 //
 // Generate a "megablocks" blockchain from the main
@@ -132,7 +134,7 @@ int main(int argc, char* argv[])
 
     // First block is -regtest genesis block:
     StreamToDisk(Params(CBaseChainParams::REGTEST).GenesisBlock(), writeDir);
-    uint256 hashPrevBlock = Params(CBaseChainParams::REGTEST).HashGenesisBlock();
+    uint256 hashPrevBlock = Params(CBaseChainParams::REGTEST).GenesisBlock().GetHash();
 
     if (!fQuiet) printf("\nBlock height is %d; combining into %s\n", chainActive.Height(), writeDir.c_str());
     std::string coinbaseFile = writeDir+"/"+"coinbasetx.dat";

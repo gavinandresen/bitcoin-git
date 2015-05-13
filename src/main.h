@@ -129,7 +129,10 @@ extern CBlockIndex *pindexBestHeader;
 /** Minimum disk space required - used in CheckDiskSpace() */
 static const uint64_t nMinDiskSpace = 52428800;
 
-<<<<<<< HEAD
+//MEGABLOCKS: coinbase transactions from a chain we're emulating
+// keys are blockheight-in-regtest-chain
+extern std::multimap<int, CTransaction> megablockCoinbases;
+
 /** Pruning-related variables and constants */
 /** True if any block files have ever been pruned. */
 extern bool fHavePruned;
@@ -149,20 +152,6 @@ static const signed int MIN_BLOCKS_TO_KEEP = 288;
 // one 128MB block file + added 15% undo data = 147MB greater for a total of 545MB
 // Setting the target to > than 550MB will make it likely we can respect the target.
 static const signed int MIN_DISK_SPACE_FOR_BLOCK_FILES = 550 * 1024 * 1024;
-=======
-//MEGABLOCKS: coinbase transactions from a chain we're emulating
-// keys are blockheight-in-regtest-chain
-extern std::multimap<int, CTransaction> megablockCoinbases;
-
-/** Register a wallet to receive updates from core */
-void RegisterValidationInterface(CValidationInterface* pwalletIn);
-/** Unregister a wallet from core */
-void UnregisterValidationInterface(CValidationInterface* pwalletIn);
-/** Unregister all wallets from core */
-void UnregisterAllValidationInterfaces();
-/** Push an updated transaction to all registered wallets */
-void SyncWithWallets(const CTransaction& tx, const CBlock* pblock = NULL);
->>>>>>> Extra Large block experiments
 
 /** Register with a network node to receive its signals */
 void RegisterNodeSignals(CNodeSignals& nodeSignals);

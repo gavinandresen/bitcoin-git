@@ -201,6 +201,7 @@ public:
         consensus.nMajorityRejectBlockOutdated = 950;
         consensus.nMajorityWindow = 1000;
         consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.fPowAllowMinDifficultyBlocks = true; //MEGABLOCKS (creates chains with all blocks == min POW)
         pchMessageStart[0] = 0xfa;
         pchMessageStart[1] = 0xbf;
         pchMessageStart[2] = 0xb5;
@@ -223,7 +224,6 @@ public:
         fRequireStandard = false;
         fMineBlocksOnDemand = true;
         fTestnetToBeDeprecatedFieldRPC = false;
-        fSkipProofOfWorkCheck = true; //MEGABLOCKS (creates chains with all blocks == min POW)
 
         checkpointData = (Checkpoints::CCheckpointData){
             boost::assign::map_list_of
