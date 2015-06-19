@@ -170,6 +170,7 @@ Value generate(const Array& params, bool fHelp)
         ++nHeight;
         blockHashes.push_back(pblock->GetHash().GetHex());
     }
+    reservekey.KeepKey();
     return blockHashes;
 }
 
