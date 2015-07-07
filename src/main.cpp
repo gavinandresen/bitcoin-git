@@ -83,13 +83,15 @@ static bool SanityCheckMessage(CNode* peer, const CNetMessage& msg);
 
 /**
  * Returns true if there are nRequired or more blocks with a version that matches
- * versionBitMask in the last Consensus::Params::nMajorityWindow blocks,
+ * versionOrBitmask in the last Consensus::Params::nMajorityWindow blocks,
  * starting at pstart and going backwards.
+ *
  * A bitmask is used to be compatible with Pieter Wuille's "Version bits"
  * proposal, so it is possible for multiple forks to be in-progress
- * at the same time.
+ * at the same time. A simple >= version field is used for forks that
+ * predate this proposal.
  */
-static bool IsSuperMajority(int versionBitmask, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams);
+static bool IsSuperMajority(int versionOrBitmask, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams, bool useBitMask = true);
 static void CheckBlockIndex();
 
 /** Constant stuff for coinbase transactions we create: */
@@ -864,6 +866,16 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, uint64_t 
     return true;
 }
 
+static uint64_t CalcDefaultBlockPrioritySize() {
+    uint64_t nConsensusMaxSize = Params().GetConsensus().MaxBlockSize(GetAdjustedTime(), sizeForkTime.load());
+    // How much of the block should be dedicated to high-priority transactions,
+    // included regardless of the fees they pay. This is to help people who want
+    // to make free transactions and don't mind waiting a while: coin age stands
+    // in for the monetary value of the fee. Defaults to an arbitrary 5% of the
+    // current max block size.
+    return nConsensusMaxSize / 20;
+}
+
 CAmount GetMinRelayFee(const CTransaction& tx, unsigned int nBytes, bool fAllowFree)
 {
     {
@@ -884,7 +896,7 @@ CAmount GetMinRelayFee(const CTransaction& tx, unsigned int nBytes, bool fAllowF
         // * If we are relaying we allow transactions up to DEFAULT_BLOCK_PRIORITY_SIZE - 1000
         //   to be considered to fall into this category. We don't want to encourage sending
         //   multiple transactions instead of one big transaction to avoid fees.
-        if (nBytes < (DEFAULT_BLOCK_PRIORITY_SIZE - 1000))
+        if (nBytes < (CalcDefaultBlockPrioritySize() - 1000))
             nMinFee = 0;
     }
 
@@ -1787,6 +1799,12 @@ static int64_t nTimeIndex = 0;
 static int64_t nTimeCallbacks = 0;
 static int64_t nTimeTotal = 0;
 
+static bool DidBlockTriggerSizeFork(const CBlock &block, const CBlockIndex *pindex, const CChainParams &chainparams) {
+    return (block.nVersion & SIZE_FORK_VERSION) &&
+           (pblocktree->ForkActivated(SIZE_FORK_VERSION) == uint256()) &&
+           IsSuperMajority(SIZE_FORK_VERSION, pindex, chainparams.GetConsensus().ActivateSizeForkMajority(), chainparams.GetConsensus(), true /* use bitmask */);
+}
+
 bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view, bool fJustCheck)
 {
     const CChainParams& chainparams = Params();
@@ -1955,11 +1973,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     int64_t nTime4 = GetTimeMicros(); nTimeCallbacks += nTime4 - nTime3;
     LogPrint("bench", "    - Callbacks: %.2fms [%.2fs]\n", 0.001 * (nTime4 - nTime3), nTimeCallbacks * 0.000001);
 
-    // See if this block triggered activation of the max block size fork:
-    if ((block.nVersion & SIZE_FORK_VERSION) && 
-        (pblocktree->ForkActivated(SIZE_FORK_VERSION) == uint256()) &&
-        IsSuperMajority(SIZE_FORK_VERSION, pindex, chainparams.GetConsensus().ActivateSizeForkMajority(), chainparams.GetConsensus())) {
-
+    if (DidBlockTriggerSizeFork(block, pindex, chainparams)) {
         uint64_t tAllowBigger = block.nTime + chainparams.GetConsensus().SizeForkGracePeriod();
         LogPrintf("%s: Max block size fork activating at time %d, bigger blocks allowed at time %d\n",
                   __func__, block.nTime, tAllowBigger);
@@ -2114,12 +2128,12 @@ void static UpdateTip(CBlockIndex *pindexNew) {
         const CBlockIndex* pindex = chainActive.Tip();
         for (int i = 0; i < 100 && pindex != NULL; i++)
         {
-            if (pindex->nVersion > CBlock::CURRENT_VERSION)
+            if ((pindex->nVersion & CBlock::CURRENT_VERSION) != 0)
                 ++nUpgraded;
             pindex = pindex->pprev;
         }
         if (nUpgraded > 0)
-            LogPrintf("%s: %d of last 100 blocks above version %d\n", __func__, nUpgraded, (int)CBlock::CURRENT_VERSION);
+            LogPrintf("%s: %d of last 100 blocks contain unknown version feature bit\n", __func__, nUpgraded);
         if (nUpgraded > 100/2)
         {
             // strMiscWarning is read by GetWarnings(), called by Qt and the JSON-RPC code to warn the user:
@@ -2927,12 +2941,13 @@ bool AcceptBlock(CBlock& block, CValidationState& state, CBlockIndex** ppindex, 
     return true;
 }
 
-static bool IsSuperMajority(int versionBitmask, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams)
+static bool IsSuperMajority(int versionOrBitmask, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams, bool useBitMask)
 {
     unsigned int nFound = 0;
     for (int i = 0; i < consensusParams.nMajorityWindow && nFound < nRequired && pstart != NULL; i++)
     {
-        if ( (pstart->nVersion & versionBitmask) == versionBitmask)
+        if ((useBitMask && ((pstart->nVersion & versionOrBitmask) == versionOrBitmask)) ||
+            (!useBitMask && (pstart->nVersion >= versionOrBitmask)))
             ++nFound;
         pstart = pstart->pprev;
     }

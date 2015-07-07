@@ -119,7 +119,6 @@ BOOST_AUTO_TEST_CASE(TooLargePing)
 
     CDataStream s(SER_NETWORK, PROTOCOL_VERSION);
     s << CMessageHeader(Params().MessageStart(), "ping", 0);
-    size_t headerLen = s.size();
     s << (uint64_t)11; // 8-byte nonce
 
     CNetMessage::FinalizeHeader(s);
