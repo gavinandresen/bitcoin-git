@@ -188,6 +188,7 @@ static boost::once_flag debugPrintInitFlag = BOOST_ONCE_INIT;
 static FILE* fileout = NULL;
 static boost::mutex* mutexDebugLog = NULL;
 static list<string> *vMsgsBeforeOpenLog;
+static int64_t nTimeStartMillis = 0;
 
 static int FileWriteStr(const std::string &str, FILE *fp)
 {
@@ -199,6 +200,7 @@ static void DebugPrintInit()
     assert(mutexDebugLog == NULL);
     mutexDebugLog = new boost::mutex();
     vMsgsBeforeOpenLog = new list<string>;
+    nTimeStartMillis = GetArg("-reftime", GetTimeMillis());
 }
 
 void OpenDebugLog()
@@ -263,8 +265,10 @@ static std::string LogTimestampStr(const std::string &str, bool *fStartedNewLine
     if (!fLogTimestamps)
         return str;
 
-    if (*fStartedNewLine)
-        strStamped =  DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()) + ' ' + str;
+    if (*fStartedNewLine) {
+        int t = (int)(GetTimeMillis()-nTimeStartMillis);
+        strStamped = strprintf("%d.%03d ", t/1000, t%1000) + str;
+    }
     else
         strStamped = str;
 
