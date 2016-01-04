@@ -23,7 +23,6 @@
 #include <pthread_np.h>
 #endif
 
-#ifndef WIN32
 // for posix_fallocate
 #ifdef __linux__
 
@@ -40,33 +39,6 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 
-#else
-
-#ifdef _MSC_VER
-#pragma warning(disable:4786)
-#pragma warning(disable:4804)
-#pragma warning(disable:4805)
-#pragma warning(disable:4717)
-#endif
-
-#ifdef _WIN32_WINNT
-#undef _WIN32_WINNT
-#endif
-#define _WIN32_WINNT 0x0501
-
-#ifdef _WIN32_IE
-#undef _WIN32_IE
-#endif
-#define _WIN32_IE 0x0501
-
-#define WIN32_LEAN_AND_MEAN 1
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-
-#include <io.h> /* for _commit */
-#include <shlobj.h>
-#endif
 
 #ifdef HAVE_SYS_PRCTL_H
 #include <sys/prctl.h>
@@ -146,10 +118,6 @@ public:
         // that the config appears to have been loaded and there are no modules/engines available.
         OPENSSL_no_config();
 
-#ifdef WIN32
-        // Seed OpenSSL PRNG with current contents of the screen
-        RAND_screen();
-#endif
 
         // Seed OpenSSL PRNG with performance counter
         RandAddSeed();
@@ -357,11 +325,6 @@ void ParseParameters(int argc, const char* const argv[])
             strValue = str.substr(is_index+1);
             str = str.substr(0, is_index);
         }
-#ifdef WIN32
-        boost::to_lower(str);
-        if (boost::algorithm::starts_with(str, "/"))
-            str = "-" + str.substr(1);
-#endif
 
         if (str[0] != '-')
             break;
@@ -431,12 +394,7 @@ std::string HelpMessageOpt(const std::string &option, const std::string &message
 
 static std::string FormatException(const std::exception* pex, const char* pszThread)
 {
-#ifdef WIN32
-    char pszModule[MAX_PATH] = "";
-    GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
-#else
     const char* pszModule = "bitcoin";
-#endif
     if (pex)
         return strprintf(
             "EXCEPTION: %s       \n%s       \n%s in %s       \n", typeid(*pex).name(), pex->what(), pszModule, pszThread);
@@ -459,10 +417,6 @@ boost::filesystem::path GetDefaultDataDir()
     // Windows >= Vista: C:\Users\Username\AppData\Roaming\Bitcoin
     // Mac: ~/Library/Application Support/Bitcoin
     // Unix: ~/.bitcoin
-#ifdef WIN32
-    // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "Bitcoin";
-#else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
     if (pszHome == NULL || strlen(pszHome) == 0)
@@ -477,7 +431,6 @@ boost::filesystem::path GetDefaultDataDir()
 #else
     // Unix
     return pathRet / ".bitcoin";
-#endif
 #endif
 }
 
@@ -554,7 +507,6 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
     ClearDatadirCache();
 }
 
-#ifndef WIN32
 boost::filesystem::path GetPidFile()
 {
     boost::filesystem::path pathPidFile(GetArg("-pid", BITCOIN_PID_FILENAME));
@@ -571,17 +523,11 @@ void CreatePidFile(const boost::filesystem::path &path, pid_t pid)
         fclose(file);
     }
 }
-#endif
 
 bool RenameOver(boost::filesystem::path src, boost::filesystem::path dest)
 {
-#ifdef WIN32
-    return MoveFileExA(src.string().c_str(), dest.string().c_str(),
-                       MOVEFILE_REPLACE_EXISTING) != 0;
-#else
     int rc = std::rename(src.string().c_str(), dest.string().c_str());
     return (rc == 0);
-#endif /* WIN32 */
 }
 
 /**
@@ -606,10 +552,6 @@ bool TryCreateDirectory(const boost::filesystem::path& p)
 void FileCommit(FILE *fileout)
 {
     fflush(fileout); // harmless if redundantly called
-#ifdef WIN32
-    HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(fileout));
-    FlushFileBuffers(hFile);
-#else
     #if defined(__linux__) || defined(__NetBSD__)
     fdatasync(fileno(fileout));
     #elif defined(__APPLE__) && defined(F_FULLFSYNC)
@@ -617,15 +559,10 @@ void FileCommit(FILE *fileout)
     #else
     fsync(fileno(fileout));
     #endif
-#endif
 }
 
 bool TruncateFile(FILE *file, unsigned int length) {
-#if defined(WIN32)
-    return _chsize(_fileno(file), length) == 0;
-#else
     return ftruncate(fileno(file), length) == 0;
-#endif
 }
 
 /**
@@ -633,9 +570,6 @@ bool TruncateFile(FILE *file, unsigned int length) {
  * It returns the actual file descriptor limit (which may be more or less than nMinFD)
  */
 int RaiseFileDescriptorLimit(int nMinFD) {
-#if defined(WIN32)
-    return 2048;
-#else
     struct rlimit limitFD;
     if (getrlimit(RLIMIT_NOFILE, &limitFD) != -1) {
         if (limitFD.rlim_cur < (rlim_t)nMinFD) {
@@ -648,7 +582,6 @@ int RaiseFileDescriptorLimit(int nMinFD) {
         return limitFD.rlim_cur;
     }
     return nMinFD; // getrlimit failed, assume it's fine
-#endif
 }
 
 /**
@@ -656,16 +589,7 @@ int RaiseFileDescriptorLimit(int nMinFD) {
  * it is advisory, and the range specified in the arguments will never contain live data
  */
 void AllocateFileRange(FILE *file, unsigned int offset, unsigned int length) {
-#if defined(WIN32)
-    // Windows-specific version
-    HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(file));
-    LARGE_INTEGER nFileSize;
-    int64_t nEndPos = (int64_t)offset + length;
-    nFileSize.u.LowPart = nEndPos & 0xFFFFFFFF;
-    nFileSize.u.HighPart = nEndPos >> 32;
-    SetFilePointerEx(hFile, nFileSize, 0, FILE_BEGIN);
-    SetEndOfFile(hFile);
-#elif defined(MAC_OSX)
+#if   defined(MAC_OSX)
     // OSX specific version
     fstore_t fst;
     fst.fst_flags = F_ALLOCATECONTIG;
@@ -721,22 +645,6 @@ void ShrinkDebugFile()
         fclose(file);
 }
 
-#ifdef WIN32
-boost::filesystem::path GetSpecialFolderPath(int nFolder, bool fCreate)
-{
-    namespace fs = boost::filesystem;
-
-    char pszPath[MAX_PATH] = "";
-
-    if(SHGetSpecialFolderPathA(NULL, pszPath, nFolder, fCreate))
-    {
-        return fs::path(pszPath);
-    }
-
-    LogPrintf("SHGetSpecialFolderPathA() failed, could not obtain requested path.\n");
-    return fs::path("");
-}
-#endif
 
 boost::filesystem::path GetTempPath() {
 #if BOOST_FILESYSTEM_VERSION == 3
@@ -744,14 +652,7 @@ boost::filesystem::path GetTempPath() {
 #else
     // TODO: remove when we don't support filesystem v2 anymore
     boost::filesystem::path path;
-#ifdef WIN32
-    char pszPath[MAX_PATH] = "";
-
-    if (GetTempPathA(MAX_PATH, pszPath))
-        path = boost::filesystem::path(pszPath);
-#else
     path = boost::filesystem::path("/tmp");
-#endif
     if (path.empty() || !boost::filesystem::is_directory(path)) {
         LogPrintf("GetTempPath(): failed to find temp path\n");
         return boost::filesystem::path("");
@@ -804,27 +705,16 @@ void SetupEnvironment()
 
 bool SetupNetworking()
 {
-#ifdef WIN32
-    // Initialize Windows Sockets
-    WSADATA wsadata;
-    int ret = WSAStartup(MAKEWORD(2,2), &wsadata);
-    if (ret != NO_ERROR || LOBYTE(wsadata.wVersion ) != 2 || HIBYTE(wsadata.wVersion) != 2)
-        return false;
-#endif
     return true;
 }
 
 void SetThreadPriority(int nPriority)
 {
-#ifdef WIN32
-    SetThreadPriority(GetCurrentThread(), nPriority);
-#else // WIN32
 #ifdef PRIO_THREAD
     setpriority(PRIO_THREAD, 0, nPriority);
 #else // PRIO_THREAD
     setpriority(PRIO_PROCESS, 0, nPriority);
 #endif // PRIO_THREAD
-#endif // WIN32
 }
 
 int GetNumCores()

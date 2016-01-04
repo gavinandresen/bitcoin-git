@@ -20,12 +20,10 @@
 #include <netdb.h>
 #endif
 
-#ifndef WIN32
 #if HAVE_INET_PTON
 #include <arpa/inet.h>
 #endif
 #include <fcntl.h>
-#endif
 
 #include <boost/algorithm/string/case_conv.hpp> // for to_lower()
 #include <boost/algorithm/string/predicate.hpp> // for startswith() and endswith()
@@ -123,11 +121,7 @@ bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsign
     aiHint.ai_socktype = SOCK_STREAM;
     aiHint.ai_protocol = IPPROTO_TCP;
     aiHint.ai_family = AF_UNSPEC;
-#ifdef WIN32
-    aiHint.ai_flags = fAllowLookup ? 0 : AI_NUMERICHOST;
-#else
     aiHint.ai_flags = fAllowLookup ? AI_ADDRCONFIG : AI_NUMERICHOST;
-#endif
 
     struct addrinfo *aiRes = NULL;
 #ifdef HAVE_GETADDRINFO_A
@@ -448,11 +442,7 @@ bool static ConnectSocketDirectly(const CService &addrConnect, SOCKET& hSocketRe
 #endif
 
     //Disable Nagle's algorithm
-#ifdef WIN32
-    setsockopt(hSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&set, sizeof(int));
-#else
     setsockopt(hSocket, IPPROTO_TCP, TCP_NODELAY, (void*)&set, sizeof(int));
-#endif
 
     // Set to non-blocking
     if (!SetSocketNonBlocking(hSocket, true))
@@ -482,11 +472,7 @@ bool static ConnectSocketDirectly(const CService &addrConnect, SOCKET& hSocketRe
                 return false;
             }
             socklen_t nRetSize = sizeof(nRet);
-#ifdef WIN32
-            if (getsockopt(hSocket, SOL_SOCKET, SO_ERROR, (char*)(&nRet), &nRetSize) == SOCKET_ERROR)
-#else
             if (getsockopt(hSocket, SOL_SOCKET, SO_ERROR, &nRet, &nRetSize) == SOCKET_ERROR)
-#endif
             {
                 LogPrintf("getsockopt() for %s failed: %s\n", addrConnect.ToString(), NetworkErrorString(WSAGetLastError()));
                 CloseSocket(hSocket);
@@ -499,11 +485,7 @@ bool static ConnectSocketDirectly(const CService &addrConnect, SOCKET& hSocketRe
                 return false;
             }
         }
-#ifdef WIN32
-        else if (WSAGetLastError() != WSAEISCONN)
-#else
         else
-#endif
         {
             LogPrintf("connect() to %s failed: %s\n", addrConnect.ToString(), NetworkErrorString(WSAGetLastError()));
             CloseSocket(hSocket);
@@ -1389,23 +1371,6 @@ bool operator<(const CSubNet& a, const CSubNet& b)
     return (a.network < b.network || (a.network == b.network && memcmp(a.netmask, b.netmask, 16) < 0));
 }
 
-#ifdef WIN32
-std::string NetworkErrorString(int err)
-{
-    char buf[256];
-    buf[0] = 0;
-    if(FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
-            NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            buf, sizeof(buf), NULL))
-    {
-        return strprintf("%s (%d)", buf, err);
-    }
-    else
-    {
-        return strprintf("Unknown error (%d)", err);
-    }
-}
-#else
 std::string NetworkErrorString(int err)
 {
     char buf[256];
@@ -1421,17 +1386,12 @@ std::string NetworkErrorString(int err)
 #endif
     return strprintf("%s (%d)", s, err);
 }
-#endif
 
 bool CloseSocket(SOCKET& hSocket)
 {
     if (hSocket == INVALID_SOCKET)
         return false;
-#ifdef WIN32
-    int ret = closesocket(hSocket);
-#else
     int ret = close(hSocket);
-#endif
     hSocket = INVALID_SOCKET;
     return ret != SOCKET_ERROR;
 }
@@ -1439,24 +1399,14 @@ bool CloseSocket(SOCKET& hSocket)
 bool SetSocketNonBlocking(SOCKET& hSocket, bool fNonBlocking)
 {
     if (fNonBlocking) {
-#ifdef WIN32
-        u_long nOne = 1;
-        if (ioctlsocket(hSocket, FIONBIO, &nOne) == SOCKET_ERROR) {
-#else
         int fFlags = fcntl(hSocket, F_GETFL, 0);
         if (fcntl(hSocket, F_SETFL, fFlags | O_NONBLOCK) == SOCKET_ERROR) {
-#endif
             CloseSocket(hSocket);
             return false;
         }
     } else {
-#ifdef WIN32
-        u_long nZero = 0;
-        if (ioctlsocket(hSocket, FIONBIO, &nZero) == SOCKET_ERROR) {
-#else
         int fFlags = fcntl(hSocket, F_GETFL, 0);
         if (fcntl(hSocket, F_SETFL, fFlags & ~O_NONBLOCK) == SOCKET_ERROR) {
-#endif
             CloseSocket(hSocket);
             return false;
         }

@@ -400,11 +400,7 @@ bool InitHTTPServer()
     else
         event_enable_debug_logging(EVENT_DBG_NONE);
 #endif
-#ifdef WIN32
-    evthread_use_windows_threads();
-#else
     evthread_use_pthreads();
-#endif
 
     base = event_base_new(); // XXX RAII
     if (!base) {

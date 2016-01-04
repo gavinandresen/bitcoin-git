@@ -522,20 +522,12 @@ std::string itostr(int n)
 
 int64_t atoi64(const char* psz)
 {
-#ifdef _MSC_VER
-    return _atoi64(psz);
-#else
     return strtoll(psz, NULL, 10);
-#endif
 }
 
 int64_t atoi64(const std::string& str)
 {
-#ifdef _MSC_VER
-    return _atoi64(str.c_str());
-#else
     return strtoll(str.c_str(), NULL, 10);
-#endif
 }
 
 int atoi(const std::string& str)

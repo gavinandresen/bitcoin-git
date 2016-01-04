@@ -125,7 +125,6 @@ bool AppInit(int argc, char* argv[])
             fprintf(stderr, "Error: There is no RPC client functionality in bitcoind anymore. Use the bitcoin-cli utility instead.\n");
             exit(1);
         }
-#ifndef WIN32
         fDaemon = GetBoolArg("-daemon", false);
         if (fDaemon)
         {
@@ -148,7 +147,6 @@ bool AppInit(int argc, char* argv[])
             if (sid < 0)
                 fprintf(stderr, "Error: setsid() returned %d errno %d\n", sid, errno);
         }
-#endif
         SoftSetBoolArg("-server", true);
 
         // Set this early so that parameter interactions go to console
