@@ -65,6 +65,7 @@ public:
         consensus.nMaxSizeDoublings = 10;
         consensus.nActivateSizeForkMajority = 750; // 75% of hashpower to activate fork
         consensus.nSizeForkGracePeriod = 60*60*24*14; // two week grace period after activation
+        consensus.nMaxTxSizePostFork = 100*1000; // To prevent O(n^2) sighash attacks
 
         /**
          * Build the genesis block. Note that the output of its generation
@@ -172,6 +173,7 @@ public:
         consensus.nMaxSizeDoublings = 10;
         consensus.nActivateSizeForkMajority = 75; // 75 of 100 to activate fork
         consensus.nSizeForkGracePeriod = 60*60*24; // 1-day grace period
+        consensus.nMaxTxSizePostFork = 100*1000; // To prevent O(n^2) sighash attacks
 
         //! Modify the testnet genesis block so the timestamp is valid for a later start.
         genesis.nTime = 1296688602;

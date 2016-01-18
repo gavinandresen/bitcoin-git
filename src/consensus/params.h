@@ -34,10 +34,17 @@ struct Params {
     uint8_t nMaxSizeDoublings;
     int nActivateSizeForkMajority;
     uint64_t nSizeForkGracePeriod;
+    uint64_t nMaxTxSizePostFork;
+
+    bool IsTwoMegActivated(uint64_t nBlockTimestamp, uint64_t nSizeForkActivationTime) const {
+        if (nBlockTimestamp < nEarliestSizeForkTime || nBlockTimestamp < nSizeForkActivationTime)
+            return false;
+        return true;
+    }
 
     /** Maximum block size of a block with timestamp nBlockTimestamp */
     uint64_t MaxBlockSize(uint64_t nBlockTimestamp, uint64_t nSizeForkActivationTime) const {
-        if (nBlockTimestamp < nEarliestSizeForkTime || nBlockTimestamp < nSizeForkActivationTime)
+        if (!IsTwoMegActivated(nBlockTimestamp, nSizeForkActivationTime))
             return nMaxSizePreFork;
         if (nBlockTimestamp >= nEarliestSizeForkTime + nSizeDoubleEpoch * nMaxSizeDoublings)
             return nMaxSizeBase << nMaxSizeDoublings;
@@ -57,6 +64,18 @@ struct Params {
     uint64_t MaxBlockSigops(uint64_t nBlockTimestamp, uint64_t nSizeForkActivationTime) const {
         return MaxBlockSize(nBlockTimestamp, nSizeForkActivationTime)/50;
     }
+    /** Maximum serialized transaction size in a block */
+    uint64_t MaxTransactionSize(uint64_t nBlockTimestamp, uint64_t nSizeForkActivationTime) const {
+        if (!IsTwoMegActivated(nBlockTimestamp, nSizeForkActivationTime)) {
+            // Before fork, max transaction size is max block size
+            return MaxBlockSize(nBlockTimestamp, nSizeForkActivationTime);
+        }
+        else {
+            // Post-fork, max transaction size is 100,000 bytes
+            return nMaxTxSizePostFork;
+        }
+    }
+
     int ActivateSizeForkMajority() const { return nActivateSizeForkMajority; }
     uint64_t SizeForkGracePeriod() const { return nSizeForkGracePeriod; }
 };

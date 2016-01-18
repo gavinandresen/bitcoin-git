@@ -947,7 +947,7 @@ bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransa
     if (pfMissingInputs)
         *pfMissingInputs = false;
 
-    if (!CheckTransaction(tx, state, Params().GetConsensus().MaxBlockSize(GetAdjustedTime(), sizeForkTime.load())))
+    if (!CheckTransaction(tx, state, Params().GetConsensus().MaxTransactionSize(GetAdjustedTime(), sizeForkTime.load())))
         return error("AcceptToMemoryPool: CheckTransaction failed");
 
     // Coinbase is only valid in a block, not as a loose transaction
@@ -2795,8 +2795,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                              REJECT_INVALID, "bad-cb-multiple");
 
     // Check transactions
+    uint64_t nMaxTxSize = Params().GetConsensus().MaxTransactionSize(block.GetBlockTime(), sizeForkTime.load());
     BOOST_FOREACH(const CTransaction& tx, block.vtx)
-        if (!CheckTransaction(tx, state, nMaxBlockSize))
+        if (!CheckTransaction(tx, state, nMaxTxSize))
             return error("CheckBlock(): CheckTransaction failed");
 
     unsigned int nSigOps = 0;
