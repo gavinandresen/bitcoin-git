@@ -90,6 +90,7 @@ void UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, 
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock, consensusParams);
 }
 
+
 CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
 {
     const CChainParams& chainparams = Params();
@@ -98,11 +99,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
     if(!pblocktemplate.get())
         return NULL;
     CBlock *pblock = &pblocktemplate->block; // pointer for convenience
-
-    // -regtest only: allow overriding block.nVersion with
-    // -blockversion=N to test forking scenarios
-    if (Params().MineBlocksOnDemand())
-        pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
 
     // Create coinbase tx
     CMutableTransaction txNew;
@@ -127,12 +123,26 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn)
         const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();
         CCoinsViewCache view(pcoinsTip);
 
-        unsigned int nSizeLimit = MaxBlockSize(nMedianTimePast);
+        pblock->nVersion = BASE_VERSION;
+        // Vote for 2 MB until the vote expiration time
+        if (pblock->nTime <= chainparams.GetConsensus().SizeForkExpiration())
+            pblock->nVersion |= FORK_BIT_2MB;
 
-        // Largest block you're willing to create:
-        unsigned int nBlockMaxSize = GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
-        // Limit to betweeen 1K and max size-1K for sanity:
-        nBlockMaxSize = std::max((unsigned int)1000, std::min((unsigned int)(nSizeLimit-1000), nBlockMaxSize));
+        // -regtest only: allow overriding block.nVersion with
+        // -blockversion=N to test forking scenarios
+        if (Params().MineBlocksOnDemand())
+            pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
+
+        UpdateTime(pblock, Params().GetConsensus(), pindexPrev);
+
+        uint32_t nConsensusMaxSize = MaxBlockSize(pblock->nTime);
+        // Largest block you're willing to create, defaults to being the biggest possible.
+        // Miners can adjust downwards if they wish to throttle their blocks, for instance, to work around
+        // high orphan rates or other scaling problems.
+        uint32_t nBlockMaxSize = (uint32_t) GetArg("-blockmaxsize", nConsensusMaxSize);
+        // Limit to betweeen 1K and MAX_BLOCK_SIZE-1K for sanity:
+        nBlockMaxSize = std::max((uint32_t)1000,
+                                 std::min(nConsensusMaxSize-1000, nBlockMaxSize));
 
         // How much of the block should be dedicated to high-priority transactions,
         // included regardless of the fees they pay
