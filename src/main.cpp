@@ -4711,6 +4711,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         }
 
         CBlockIndex *pindexLast = NULL;
+        CBlockIndex *pindexLastBestHeader = pindexBestHeader;
         BOOST_FOREACH(const CBlockHeader& header, headers) {
             CValidationState state;
             if (pindexLast != NULL && header.hashPrevBlock != pindexLast->GetBlockHash()) {
@@ -4729,6 +4730,11 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
 
         if (pindexLast)
             UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
+
+        if (pindexBestHeader && pindexBestHeader != pindexLastBestHeader) {
+            cvBlockChange.notify_all();
+            uiInterface.NotifyBlockHeader(pindexBestHeader);
+        }
 
         if (nCount == MAX_HEADERS_RESULTS && pindexLast) {
             // Headers message had its maximum size; the peer may have more headers.
