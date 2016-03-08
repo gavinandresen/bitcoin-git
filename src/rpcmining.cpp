@@ -320,6 +320,26 @@ static UniValue BIP22ValidationResult(const CValidationState& state)
     return "valid?";
 }
 
+// Head-first mining: If we've received a more-work header
+// with valid proof-of-work, build an empty block on it for up to 30 seconds
+// header_tip is the most-work chain of headers we've seen.
+// validated_tip is the most-work fully-validated chain; most of the time
+// they are the same, they are different only in the time between receiving a
+// block header and receiving and then fully validating the block with
+// all its transactions.
+static CBlockIndex* GetBuildTip(CBlockIndex* validated_tip, CBlockIndex* header_tip)
+{
+    const int64_t maxEmptyTime = 30;
+
+    if (header_tip && (header_tip->nChainWork > validated_tip->nChainWork) &&
+        header_tip->IsValid(BLOCK_VALID_HEADER) &&
+        (GetTime() - header_tip->GetFirstSeenTime() <= maxEmptyTime)) {
+        return header_tip;
+    }
+
+    return validated_tip;
+}
+
 UniValue getblocktemplate(const UniValue& params, bool fHelp)
 {
     if (fHelp || params.size() > 1)
@@ -423,11 +443,11 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             }
 
             CBlockIndex* const pindexPrev = chainActive.Tip();
-            // TestBlockValidity only supports blocks built on the current Tip
-            if (block.hashPrevBlock != pindexPrev->GetBlockHash())
-                return "inconclusive-not-best-prevblk";
             CValidationState state;
             TestBlockValidity(state, Params(), block, pindexPrev, false, true);
+            // TestBlockValidity doesn't fully validate blocks not built on the current Tip
+            if (state.IsValid() && block.hashPrevBlock != pindexPrev->GetBlockHash())
+                return "inconclusive-not-best-prevblk";
             return BIP22ValidationResult(state);
         }
     }
@@ -445,7 +465,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     static CTxMemPool emptyMemPool(CFeeRate(0));
 
     // Which tip to build on
-    CBlockIndex* build_tip = chainActive.Tip();
+    CBlockIndex* build_tip = GetBuildTip(chainActive.Tip(), pindexBestHeader);
 
     // Memory pool to get transactions from
     CTxMemPool* mPool = (build_tip == chainActive.Tip() ? &mempool : &emptyMemPool);
@@ -480,14 +500,16 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             boost::unique_lock<boost::mutex> lock(csBestBlock);
             while (build_tip->GetBlockHash() == hashWatchedChain && IsRPCRunning())
             {
-                if (!cvBlockChange.timed_wait(lock, checktxtime))
+                bool timedOut = !cvBlockChange.timed_wait(lock, checktxtime);
+                build_tip = GetBuildTip(chainActive.Tip(), pindexBestHeader);
+                mPool = (build_tip == chainActive.Tip() ? &mempool : &emptyMemPool);
+                if (timedOut)
                 {
                     // Timeout: Check transactions for update
-                    if (mPool->GetTransactionsUpdated() != nTransactionsUpdatedLastLP)
+                    if (nTransactionsUpdatedLast == 0 || mPool->GetTransactionsUpdated() != nTransactionsUpdatedLastLP)
                         break;
                     checktxtime += boost::posix_time::seconds(10);
                 }
-                build_tip = chainActive.Tip();
             }
         }
         ENTER_CRITICAL_SECTION(cs_main);
@@ -502,7 +524,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     static int64_t nStart;
     static CBlockTemplate* pblocktemplate;
 
-    if (pindexPrev != build_tip ||
+    if (pindexPrev != build_tip || nTransactionsUpdatedLast == 0 ||
         (mPool->GetTransactionsUpdated() != nTransactionsUpdatedLast && GetTime() - nStart > 5))
     {
         // Clear pindexPrev so future calls make a new block, despite any failures from here on
@@ -520,7 +542,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             pblocktemplate = NULL;
         }
         CScript scriptDummy = CScript() << OP_TRUE;
-        pblocktemplate = CreateNewBlock(Params(), scriptDummy, chainActive.Tip(), mempool);
+        pblocktemplate = CreateNewBlock(Params(), scriptDummy, build_tip, *mPool);
         if (!pblocktemplate)
             throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory");
 
