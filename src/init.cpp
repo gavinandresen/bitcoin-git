@@ -250,6 +250,12 @@ void Shutdown()
     delete pwalletMain;
     pwalletMain = NULL;
 #endif
+    // block headers
+    BlockMap::iterator it1 = mapBlockIndex.begin();
+    for (; it1 != mapBlockIndex.end(); it1++)
+        delete (*it1).second;
+    mapBlockIndex.clear();
+
     globalVerifyHandle.reset();
     ECC_Stop();
     LogPrintf("%s: done\n", __func__);
