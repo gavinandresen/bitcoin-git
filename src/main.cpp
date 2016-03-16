@@ -1324,7 +1324,7 @@ void static InvalidChainFound(CBlockIndex* pindexNew)
     CheckForkWarningConditions();
 }
 
-void static InvalidBlockFound(CBlockIndex *pindex, const CValidationState &state) {
+void static InvalidBlockFound(const CBlock& block, CBlockIndex *pindex, const CValidationState &state) {
     int nDoS = 0;
     if (state.IsInvalid(nDoS)) {
         std::map<uint256, NodeId>::iterator it = mapBlockSource.find(pindex->GetBlockHash());
@@ -1346,6 +1346,15 @@ void static InvalidBlockFound(CBlockIndex *pindex, const CValidationState &state
         if (pindexBestHeader && !pindexBestHeader->IsValid(BLOCK_VALID_TREE)) {
             pindexBestHeader = chainActive.Tip();
             cvBlockChange.notify_all();
+        }
+        // Tell any interested peers about the invalid block
+        uint256 hash = pindex->GetBlockHash();
+        LOCK(cs_vNodes);
+        BOOST_FOREACH(CNode* pnode, vNodes) {
+            if (pnode->waitingForBlock.count(hash)) {
+                pnode->waitingForBlock.erase(hash);
+                pnode->PushMessage(NetMsgType::INVALIDBLOCK, block);
+            }
         }
     }
 }
@@ -2285,7 +2294,7 @@ bool static ConnectTip(CValidationState& state, const CChainParams& chainparams,
         GetMainSignals().BlockChecked(*pblock, state);
         if (!rv) {
             if (state.IsInvalid())
-                InvalidBlockFound(pindexNew, state);
+                InvalidBlockFound(*pblock, pindexNew, state);
             return error("ConnectTip(): ConnectBlock %s failed", pindexNew->GetBlockHash().ToString());
         }
         mapBlockSource.erase(pindexNew->GetBlockHash());
@@ -3974,11 +3983,32 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 
 void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParams)
 {
+    LOCK(cs_main);
+
+    // See if any blocks in waitingForBlock have been received and have
+    // been fully validated and are ready to be sent
+    std::map<uint256, int>::iterator w_it = pfrom->waitingForBlock.begin();
+    while (w_it != pfrom->waitingForBlock.end()) {
+        BlockMap::iterator mi = mapBlockIndex.find(w_it->first);
+        assert(mi != mapBlockIndex.end());
+        CBlockIndex* pindex = mi->second;
+        if (pindex->IsValid(BLOCK_VALID_SCRIPTS)) {
+            uint256 hash = w_it->first;
+            pfrom->vRecvGetData.push_back(CInv(w_it->second, hash));
+            ++w_it;
+            pfrom->waitingForBlock.erase(hash);
+        } else if (GetTime() - pindex->GetFirstSeenTime() > 30) {
+            uint256 hash = w_it->first;
+            ++w_it;
+            pfrom->waitingForBlock.erase(hash); // old entries timeout
+        } else {
+            ++w_it;
+        }
+    }
+
     std::deque<CInv>::iterator it = pfrom->vRecvGetData.begin();
 
     vector<CInv> vNotFound;
-
-    LOCK(cs_main);
 
     while (it != pfrom->vRecvGetData.end()) {
         // Don't bother if send buffer is too full to respond anyway
@@ -3998,7 +4028,12 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                 {
                     if (chainActive.Contains(mi->second)) {
                         send = true;
-                    } else {
+                    }
+                    else if (! (mi->second->nStatus & BLOCK_HAVE_DATA) ) {
+                        // We've got the header, but don't have the block data yet.
+                        pfrom->waitingForBlock[inv.hash] = inv.type;
+                    }
+                    else {
                         static const int nOneMonth = 30 * 24 * 60 * 60;
                         // To prevent fingerprinting attacks, only send blocks outside of the active
                         // chain if they are valid, and no more than a month older (both in time, and in
@@ -4717,7 +4752,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         }
 
         CBlockIndex *pindexLast = NULL;
-        CBlockIndex *pindexLastBestHeader = pindexBestHeader;
+        uint256 lastBestHeaderHash = pindexBestHeader ? pindexBestHeader->GetBlockHash() : uint256();
         BOOST_FOREACH(const CBlockHeader& header, headers) {
             CValidationState state;
             if (pindexLast != NULL && header.hashPrevBlock != pindexLast->GetBlockHash()) {
@@ -4737,9 +4772,26 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         if (pindexLast)
             UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
 
-        if (pindexBestHeader && pindexBestHeader != pindexLastBestHeader) {
+        if (pindexBestHeader && lastBestHeaderHash != pindexBestHeader->GetBlockHash()) {
+            // Got a better best-header
             cvBlockChange.notify_all();
             uiInterface.NotifyBlockHeader(pindexBestHeader);
+
+            // Relay more-PoW headers to peers right away
+            vector<CBlock> vHeaders;
+            BOOST_FOREACH(const CBlockHeader& header, headers) {
+                BlockMap::iterator it = mapBlockIndex.find(header.GetHash());
+                if (chainActive.Tip()->nChainWork < it->second->nChainWork) // Just headers past current tip
+                    vHeaders.push_back(header);
+            }
+            LOCK(cs_vNodes);
+            BOOST_FOREACH(CNode* pnode, vNodes) {
+                CNodeState* s = State(pnode->GetId());
+                if (s && s->fPreferHeaders && !PeerHasHeader(s, pindexBestHeader)) {
+                    s->pindexBestHeaderSent = pindexBestHeader;
+                    pnode->PushMessage(NetMsgType::HEADERS, vHeaders);
+                }
+            }
         }
 
         if (nCount == MAX_HEADERS_RESULTS && pindexLast) {
@@ -4822,6 +4874,43 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         // CNodeState.rejects.
     }
 
+    else if (strCommand == NetMsgType::INVALIDBLOCK)
+    {
+        CBlock block;
+        vRecv >> block;
+        uint256 hash = block.GetHash();
+
+        // block must have valid merkle root and proof of work, and
+        // be invalid for some other reason.
+        bool mutated;
+        uint256 hashMerkleRoot = BlockMerkleRoot(block, &mutated);
+        if (block.hashMerkleRoot != hashMerkleRoot ||
+            !CheckProofOfWork(hash, block.nBits, chainparams.GetConsensus())) {
+            Misbehaving(pfrom->GetId(), 100);
+        }
+        else {
+            LOCK(cs_main);
+            BlockMap::iterator it = mapBlockIndex.find(hash);
+            // invalidblock messages should only be sent in response to 'getdata' after
+            // we've got a 'headers' or 'inv' message.
+            if (it == mapBlockIndex.end() || !it->second->IsValid(BLOCK_VALID_TREE)) {
+                LogPrint("net", "unexpected invalidblock message %s received from peer %d\n",  hash.ToString(), pfrom->id);
+            } else {
+                LogPrint("net", "received invalidblock %s from peer=%d\n", hash.ToString(), pfrom->id);
+
+                CValidationState state;
+                bool fValid = TestBlockValidity(state, chainparams, block, it->second->pprev, true, true);
+                if (!fValid) { // we expect this
+                    CValidationState stateDummy; // prevent InvalidBlockFound from marking peer as Misbehaving()
+                    InvalidBlockFound(block, it->second, stateDummy);
+                }
+                else { // ... we should only hear about invalid blocks
+                    Misbehaving(pfrom->GetId(), 10);
+                    ProcessNewBlock(state, chainparams, pfrom, &block, false, NULL);
+                }
+            }
+        }
+    }
 
     // This asymmetric behavior for inbound and outbound connections was introduced
     // to prevent a fingerprinting attack: an attacker can send specific fake addresses
@@ -5079,7 +5168,7 @@ bool ProcessMessages(CNode* pfrom)
     //
     bool fOk = true;
 
-    if (!pfrom->vRecvGetData.empty())
+    if (!pfrom->vRecvGetData.empty() || !pfrom->waitingForBlock.empty())
         ProcessGetData(pfrom, chainparams.GetConsensus());
 
     // this maintains the order of responses
@@ -5336,6 +5425,7 @@ bool SendMessages(CNode* pto)
                     BlockMap::iterator mi = mapBlockIndex.find(hash);
                     assert(mi != mapBlockIndex.end());
                     CBlockIndex *pindex = mi->second;
+
                     if (chainActive[pindex->nHeight] != pindex) {
                         // Bail out if we reorged away from this block
                         fRevertToInv = true;

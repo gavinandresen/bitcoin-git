@@ -5,6 +5,7 @@
 #
 
 import binascii
+from copy import deepcopy
 
 from test_framework.mininode import *
 from test_framework.test_framework import BitcoinTestFramework
@@ -165,6 +166,9 @@ class HeadFirstMineTest(BitcoinTestFramework):
         block_template = self.nodes[0].getblocktemplate()
         assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
 
+        # ... all the nodes will mine on that header:
+        self.wait_for(lambda: int(self.nodes[3].getblocktemplate()['previousblockhash'], 16) == new_block.sha256)
+
         # 2. If node[0] generates a new block, should build on that:
         new_tip = int(self.nodes[0].generate(1)[0], 16)
         block_template = self.nodes[0].getblocktemplate()
@@ -206,6 +210,41 @@ class HeadFirstMineTest(BitcoinTestFramework):
         test_node.sync_with_ping()
         block_template = self.nodes[0].getblocktemplate()
         assert_equal(tip, int(block_template['previousblockhash'], 16))
+
+        # ... news of the invalid block should propagate before the 30-second timeout:
+        self.wait_for(lambda: int(self.nodes[3].getblocktemplate()['previousblockhash'], 16) == tip, timeout=10)
+
+        # 6. Valid block header sent, then try to send an 'invalidblock' with tweaked
+        # transaction data. 'invalidblock' message should be ignored.
+        new_block = self.create_valid_block(tip)
+        test_node.send_header_for_blocks([new_block])
+        test_node.sync_with_ping()
+        block_template = self.nodes[0].getblocktemplate()
+        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
+        tweaked_block = deepcopy(new_block)
+        tweaked_block.vtx[0].nLockTime = 11 # invalidates merkleroot
+        test_node.send_message(msg_invalidblock(tweaked_block)) # should be ignored
+        test_node.sync_with_ping()
+        block_template = self.nodes[0].getblocktemplate()
+        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
+        test_node.send_message(msg_block(new_block))
+        test_node.sync_with_ping()
+        assert_equal(new_block.sha256, int(self.nodes[0].getbestblockhash(), 16))
+
+        tip = new_block.sha256
+
+        # 7. Send valid block as 'invalidblock' message, should propagate as a normal
+        # block and become everybody's best block:
+        new_block = self.create_valid_block(tip)
+        test_node.send_header_for_blocks([new_block])
+        test_node.sync_with_ping()
+        test_node.send_message(msg_invalidblock(new_block)) # valid block sent in invalidblock message
+        test_node.sync_with_ping()
+        assert_equal(new_block.sha256, int(self.nodes[0].getbestblockhash(), 16))
+        self.wait_for(lambda: int(self.nodes[3].getbestblockhash(), 16) == new_block.sha256, timeout=10)
+
+        tip = new_block.sha256
+
 
 if __name__ == '__main__':
     HeadFirstMineTest().main()
