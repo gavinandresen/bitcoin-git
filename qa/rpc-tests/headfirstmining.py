@@ -126,12 +126,19 @@ class HeadFirstMineTest(BitcoinTestFramework):
         new_block.solve()
         return new_block
 
-    def wait_for(self, test_function, wait=1, timeout=30):
+    def wait_for(self, test_function, message="Unexpected wait_for timeout", wait=1, timeout=30):
         while not test_function():
             time.sleep(wait)
             timeout -= wait;
             if timeout < 0:
-                raise AssertionError("Unexpected wait_for timeout")
+                raise AssertionError(message)
+
+    def expect_tip(self, headfirst, node, tip, message="Node not mining on expected tip"):
+        if headfirst:
+            gbt = lambda: node.getblocktemplate({"mode":"template","headfirst":30})
+        else:
+            gbt = lambda: node.getblocktemplate()
+        self.wait_for(lambda: int(gbt()['previousblockhash'], 16) == tip, message=message)
 
     def run_test(self):
         # Setup the p2p connections and start up the network thread.
@@ -162,35 +169,31 @@ class HeadFirstMineTest(BitcoinTestFramework):
         #    it should mine on that header
         new_block = self.create_valid_block(tip)
         test_node.send_header_for_blocks([new_block])
-        test_node.wait_for_getdata([new_block.sha256], timeout=5)
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], new_block.sha256)
+        self.expect_tip(False, self.nodes[0], tip)
 
         # ... all the nodes will mine on that header:
-        self.wait_for(lambda: int(self.nodes[3].getblocktemplate()['previousblockhash'], 16) == new_block.sha256)
+        self.expect_tip(True, self.nodes[3], new_block.sha256)
 
         # 2. If node[0] generates a new block, should build on that:
         new_tip = int(self.nodes[0].generate(1)[0], 16)
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(new_tip, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], new_tip)
 
         test_node.send_message(msg_block(new_block))
-        self.wait_for(lambda: int(self.nodes[3].getblocktemplate()['previousblockhash'], 16) == new_tip)
+        self.expect_tip(True, self.nodes[3], new_tip)
 
         tip = new_tip
 
         # 3. Create a block with valid POW but containing an invalid transaction
         new_block = self.create_invalid_block(tip)
         test_node.send_header_for_blocks([new_block])
-        test_node.wait_for_getdata([new_block.sha256], timeout=5)
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16)) # Should build on the invalid block
-        
+        self.expect_tip(True, self.nodes[0], new_block.sha256)
+        self.expect_tip(True, self.nodes[3], new_block.sha256)
+
         # ... once full invalid block received: shouldn't build on it:
         test_node.send_message(msg_block(new_block))
-        test_node.sync_with_ping()
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(tip, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], tip)
+        self.expect_tip(True, self.nodes[3], tip)
 
         # 4. Test submitblock when mining on top of header:
         invalid_parent = self.create_invalid_block(tip)
@@ -199,37 +202,32 @@ class HeadFirstMineTest(BitcoinTestFramework):
         valid_child = self.create_valid_block(invalid_parent.sha256)
         data = valid_child.serialize()
         result = self.nodes[0].submitblock(binascii.hexlify(data))
-        block_template = self.nodes[0].getblocktemplate()
         # Mining on valid_child:
-        assert_equal(valid_child.sha256, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], valid_child.sha256)
         # .. but best block is still tip:
         assert_equal(tip, int(self.nodes[0].getbestblockhash(), 16))
 
         # 5. Invalid parent validated: switch to mining on tip
         test_node.send_message(msg_block(invalid_parent))
         test_node.sync_with_ping()
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(tip, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], tip)
 
         # ... news of the invalid block should propagate before the 30-second timeout:
-        self.wait_for(lambda: int(self.nodes[3].getblocktemplate()['previousblockhash'], 16) == tip, timeout=10)
+        self.expect_tip(True, self.nodes[3], tip)
 
         # 6. Valid block header sent, then try to send an 'invalidblock' with tweaked
         # transaction data. 'invalidblock' message should be ignored.
         new_block = self.create_valid_block(tip)
         test_node.send_header_for_blocks([new_block])
         test_node.sync_with_ping()
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], new_block.sha256)
         tweaked_block = deepcopy(new_block)
         tweaked_block.vtx[0].nLockTime = 11 # invalidates merkleroot
         test_node.send_message(msg_invalidblock(tweaked_block)) # should be ignored
         test_node.sync_with_ping()
-        block_template = self.nodes[0].getblocktemplate()
-        assert_equal(new_block.sha256, int(block_template['previousblockhash'], 16))
+        self.expect_tip(True, self.nodes[0], new_block.sha256)
         test_node.send_message(msg_block(new_block))
-        test_node.sync_with_ping()
-        assert_equal(new_block.sha256, int(self.nodes[0].getbestblockhash(), 16))
+        self.expect_tip(True, self.nodes[3], new_block.sha256)
 
         tip = new_block.sha256
 
@@ -240,8 +238,8 @@ class HeadFirstMineTest(BitcoinTestFramework):
         test_node.sync_with_ping()
         test_node.send_message(msg_invalidblock(new_block)) # valid block sent in invalidblock message
         test_node.sync_with_ping()
-        assert_equal(new_block.sha256, int(self.nodes[0].getbestblockhash(), 16))
-        self.wait_for(lambda: int(self.nodes[3].getbestblockhash(), 16) == new_block.sha256, timeout=10)
+        self.expect_tip(True, self.nodes[0], new_block.sha256)
+        self.expect_tip(True, self.nodes[3], new_block.sha256)
 
         tip = new_block.sha256
 

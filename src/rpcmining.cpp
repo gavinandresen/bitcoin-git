@@ -327,13 +327,11 @@ static UniValue BIP22ValidationResult(const CValidationState& state)
 // they are the same, they are different only in the time between receiving a
 // block header and receiving and then fully validating the block with
 // all its transactions.
-static CBlockIndex* GetBuildTip(CBlockIndex* validated_tip, CBlockIndex* header_tip)
+static CBlockIndex* GetBuildTip(int64_t nHeadFirst, CBlockIndex* validated_tip, CBlockIndex* header_tip)
 {
-    const int64_t maxEmptyTime = 30;
-
-    if (header_tip && (header_tip->nChainWork > validated_tip->nChainWork) &&
-        header_tip->IsValid(BLOCK_VALID_HEADER) &&
-        (GetTime() - header_tip->GetFirstSeenTime() <= maxEmptyTime)) {
+    if ((GetTime() - header_tip->GetFirstSeenTime() <= nHeadFirst) &&
+	header_tip && (header_tip->nChainWork > validated_tip->nChainWork) &&
+        header_tip->IsValid(BLOCK_VALID_HEADER)) {
         return header_tip;
     }
 
@@ -357,6 +355,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             "           \"support\"           (string) client side supported feature, 'longpoll', 'coinbasetxn', 'coinbasevalue', 'proposal', 'serverlist', 'workid'\n"
             "           ,...\n"
             "         ]\n"
+            "       \"headfirst\": n         (numeric, optional) Build empty blocks on validated headers for at most n seconds\n"
             "     }\n"
             "\n"
 
@@ -396,6 +395,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             "  \"curtime\" : ttt,                  (numeric) current timestamp in seconds since epoch (Jan 1 1970 GMT)\n"
             "  \"bits\" : \"xxx\",                 (string) compressed target of next block\n"
             "  \"height\" : n                      (numeric) The height of the next block\n"
+            "  \"previousfullyvalidated\" : true|false (boolean) Previous blocks were completely validated\n"
             "}\n"
 
             "\nExamples:\n"
@@ -405,6 +405,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
 
     LOCK(cs_main);
 
+    int64_t nHeadFirst = 0;
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
     if (params.size() > 0)
@@ -450,6 +451,14 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
                 return "inconclusive-not-best-prevblk";
             return BIP22ValidationResult(state);
         }
+	else if (strMode == "template")
+	{
+	    const UniValue& headfirstval = find_value(oparam, "headfirst");
+            if (!headfirstval.isNum() && !headfirstval.isNull())
+                throw JSONRPCError(RPC_TYPE_ERROR, "Invalid headfirst value");
+	    if (headfirstval.isNum())
+                nHeadFirst = headfirstval.get_int64();
+	}
     }
 
     if (strMode != "template")
@@ -465,7 +474,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     static CTxMemPool emptyMemPool(CFeeRate(0));
 
     // Which tip to build on
-    CBlockIndex* build_tip = GetBuildTip(chainActive.Tip(), pindexBestHeader);
+    CBlockIndex* build_tip = GetBuildTip(nHeadFirst, chainActive.Tip(), pindexBestHeader);
 
     // Memory pool to get transactions from
     CTxMemPool* mPool = (build_tip == chainActive.Tip() ? &mempool : &emptyMemPool);
@@ -501,7 +510,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
             while (build_tip->GetBlockHash() == hashWatchedChain && IsRPCRunning())
             {
                 bool timedOut = !cvBlockChange.timed_wait(lock, checktxtime);
-                build_tip = GetBuildTip(chainActive.Tip(), pindexBestHeader);
+                build_tip = GetBuildTip(nHeadFirst, chainActive.Tip(), pindexBestHeader);
                 mPool = (build_tip == chainActive.Tip() ? &mempool : &emptyMemPool);
                 if (timedOut)
                 {
@@ -619,6 +628,7 @@ UniValue getblocktemplate(const UniValue& params, bool fHelp)
     result.push_back(Pair("curtime", pblock->GetBlockTime()));
     result.push_back(Pair("bits", strprintf("%08x", pblock->nBits)));
     result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight+1)));
+    result.push_back(Pair("previousfullyvalidated", build_tip->IsValid(BLOCK_VALID_SCRIPTS)));
 
     return result;
 }
