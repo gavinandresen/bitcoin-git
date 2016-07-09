@@ -20,6 +20,7 @@ current version from https://developer.apple.com/xcode/. If you install
 Xcode 4.3 or later, you'll need to install its command line tools. This can
 be done in `Xcode > Preferences > Downloads > Components` and generally must
 be re-done or updated every time Xcode is updated.
+(note: Xcode 7.3.1 has `Xcode > Preferences > Components` instead and command line tools seem to be handled with the `Location` tab)
 
 You will also need to install [Homebrew](http://brew.sh) in order to install library
 dependencies.
